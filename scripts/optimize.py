@@ -50,6 +50,7 @@ class Optimize(object):
         max_n_oracle_calls: int=200_000,
         learning_rte: float=0.001,
         acq_func: str="ts",
+        model: str="dkl",
         bsz: int=10,
         num_initialization_points: int=10_000,
         init_n_update_epochs: int=20,
@@ -82,7 +83,7 @@ class Optimize(object):
             assert not self.track_with_wandb, "Failed to import wandb, to track with wandb, try pip install wandb"
         if self.track_with_wandb:
             assert self.wandb_entity, "Must specify a valid wandb account username (wandb_entity) to run with wandb tracking"
-
+        
         # initialize train data for particular task
         #   must define self.init_train_x, self.init_train_y, and self.init_train_z
         self.load_train_data()
@@ -109,6 +110,7 @@ class Optimize(object):
             learning_rte=learning_rte,
             bsz=bsz,
             acq_func=acq_func,
+            model_class=model,
             verbose=verbose
         )
 
@@ -214,7 +216,7 @@ class Optimize(object):
         # log top k scores and xs in table
         self.log_topk_table_wandb()
 
-        return self 
+        return self  
 
 
     def print_progress_update(self):
