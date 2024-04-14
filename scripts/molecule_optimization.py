@@ -18,7 +18,7 @@ class MoleculeOptimization(Optimize):
     def __init__(
         self,
         path_to_vae_statedict: str="../lolbo/utils/mol_utils/selfies_vae/state_dict/SELFIES-VAE-state-dict.pt",
-        max_string_length: int=1024,
+        max_string_length: int=400, # This reads to be the default in the paper
         **kwargs
     ):
         self.path_to_vae_statedict = path_to_vae_statedict

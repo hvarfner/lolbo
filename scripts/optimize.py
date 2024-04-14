@@ -5,6 +5,7 @@ import fire
 import warnings
 warnings.filterwarnings('ignore')
 from rdkit import RDLogger
+import pandas as pd
 RDLogger.DisableLog('rdApp.*')
 import os
 os.environ["WANDB_SILENT"] = "True"
@@ -42,12 +43,12 @@ class Optimize(object):
     def __init__(
         self,
         task_id: str,
-        seed: int=None,
+        seed: int=42,
         track_with_wandb: bool=False,
         wandb_entity: str="",
         wandb_project_name: str="",
         minimize: bool=False,
-        max_n_oracle_calls: int=200_000,
+        max_n_oracle_calls: int=100_000,
         learning_rte: float=0.001,
         acq_func: str="ts",
         model: str="dkl",
@@ -73,6 +74,7 @@ class Optimize(object):
         self.verbose = verbose
         self.num_initialization_points = num_initialization_points
         self.e2e_freq = e2e_freq
+        self.model = model
         self.update_e2e = update_e2e 
         self.set_seed()
         if wandb_project_name: # if project name specified
@@ -195,6 +197,8 @@ class Optimize(object):
             if (self.lolbo_state.progress_fails_since_last_e2e >= self.e2e_freq) and self.update_e2e:
                 self.lolbo_state.update_models_e2e()
                 self.lolbo_state.recenter()
+                self.save_to_csv()
+            
             else: # otherwise, just update the surrogate model on data
                 self.lolbo_state.update_surrogate_model()
             # generate new candidate points, evaluate them, and update data
@@ -207,15 +211,15 @@ class Optimize(object):
                     print("\nNew best found:")
                     self.print_progress_update()
                 self.lolbo_state.new_best_found = False
-
+            self.save_to_csv()
+        
+        self.save_to_csv()
         # if verbose, print final results
         if self.verbose:
             print("\nOptimization Run Finished, Final Results:")
             self.print_progress_update()
 
-        # log top k scores and xs in table
-        self.log_topk_table_wandb()
-
+            
         return self  
 
 
@@ -249,6 +253,22 @@ class Optimize(object):
             self.tracker.finish()
 
         return self
+
+    def save_to_csv(self, save_best_nbr: int = 1000):
+        save_dir = os.environ.get("SAVE_DIR", "..")
+        res_save_path = f"{save_dir}/result_values/{self.task_id}/{self.model}"
+        str_save_path = f"{save_dir}/result_strings/{self.task_id}/{self.model}"
+        os.makedirs(res_save_path, exist_ok=True)
+        os.makedirs(str_save_path, exist_ok=True)
+        Y = self.lolbo_state.train_y.flatten()
+        df = pd.DataFrame({self.task_id: Y})
+        df.to_csv(f"{res_save_path}/{self.task_id}_{self.model}_{self.seed}.csv")
+        best_indices = torch.argsort(Y, descending=True)[:save_best_nbr]
+        best_X = np.array(self.lolbo_state.train_x)[best_indices].tolist()
+        best_y = Y[best_indices]
+        df_indices = pd.DataFrame({"string": best_X, "{self.task_id}": best_y})
+        df.to_csv(f"{str_save_path}/{self.task_id}_{self.model}_{self.seed}_strings.csv")
+
 
 
     def done(self):
