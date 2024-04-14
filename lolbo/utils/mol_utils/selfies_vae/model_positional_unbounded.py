@@ -237,6 +237,7 @@ class InfoTransformerVAE(pl.LightningModule):
             z = self.sample_posterior(mu, sigma)
 
         logits = self.decode(z, tokens)
+        mu_logits = self.decode(mu, tokens)
 
         recon_loss = F.cross_entropy(logits.permute(0, 2, 1), tokens, reduction='none').mean()  # .sum(1).mean(0)
 
@@ -250,7 +251,9 @@ class InfoTransformerVAE(pl.LightningModule):
         if self.kl_factor != 0:
             primary_loss = primary_loss + self.kl_factor * kldiv
         loss = primary_loss
-
+        print("Sample", (logits.argmax(dim=-1) == tokens).float().mean().item(), (logits.argmax(dim=-1) == tokens).all(dim=1).float().mean(dim=0).item()    )
+        print("Mean", (mu_logits.argmax(dim=-1) == tokens).float().mean().item(), (mu_logits.argmax(dim=-1) == tokens).all(dim=1).float().mean(dim=0).item()    )
+        
         return dict(
             loss=loss, z=z,
             recon_loss=recon_loss,

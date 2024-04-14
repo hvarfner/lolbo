@@ -5,7 +5,7 @@ from gpytorch.mlls import PredictiveLogLikelihood
 from lolbo.utils.bo_utils.turbo import TurboState, update_state, generate_batch
 from lolbo.utils.utils import update_models_end_to_end, update_surr_model
 from lolbo.utils.bo_utils.ppgpr import GPModelDKL
-
+from lolbo.utils.bo_utils.registry import get_model
 
 class LOLBOState:
 
@@ -22,9 +22,10 @@ class LOLBOState:
         learning_rte=0.01,
         bsz=10,
         acq_func='ts',
+        model_class='dkl',
         verbose=True,
         ):
-
+        self.model_class = get_model(model_class)
         self.objective          = objective         # objective with vae for particular task
         self.train_x            = train_x           # initial train x data
         self.train_y            = train_y           # initial train y data
@@ -37,7 +38,9 @@ class LOLBOState:
         self.bsz                = bsz               # acquisition batch size
         self.acq_func           = acq_func          # acquisition function (Expected Improvement (ei) or Thompson Sampling (ts))
         self.verbose            = verbose
-
+        
+        self.num_update_epochs = 1
+        self.init_n_epochs = 1
         assert acq_func in ["ei", "ts"]
         if minimize:
             self.train_y = self.train_y * -1
@@ -87,7 +90,7 @@ class LOLBOState:
     def initialize_surrogate_model(self ):
         likelihood = gpytorch.likelihoods.GaussianLikelihood().cuda() 
         n_pts = min(self.train_z.shape[0], 1024)
-        self.model = GPModelDKL(self.train_z[:n_pts, :].cuda(), likelihood=likelihood ).cuda()
+        self.model = self.model_class(self.train_z[:n_pts, :].cuda(), likelihood=likelihood ).cuda()
         self.mll = PredictiveLogLikelihood(self.model.likelihood, self.model, num_data=self.train_z.size(-2))
         self.model = self.model.eval() 
         self.model = self.model.cuda()
@@ -200,7 +203,8 @@ class LOLBOState:
         #   with longer strings (more tokens) 
         bsz = max(1, int(2560/max_string_len))
         num_batches = math.ceil(len(train_x) / bsz) 
-        for _ in range(self.num_update_epochs):
+        for up_idx in range(self.num_update_epochs):
+            print(f"{up_idx+1}/{self.num_update_epochs}")
             for batch_ix in range(num_batches):
                 start_idx, stop_idx = batch_ix*bsz, (batch_ix+1)*bsz
                 batch_list = train_x[start_idx:stop_idx] 

@@ -2,7 +2,7 @@ import math
 import torch
 from dataclasses import dataclass
 from torch.quasirandom import SobolEngine
-from botorch.acquisition import qExpectedImprovement
+from botorch.acquisition import qExpectedImprovement, qLogExpectedImprovement
 from botorch.optim import optimize_acqf
 from .approximate_gp import *
 from botorch.generation import MaxPosteriorSampling 
@@ -56,7 +56,7 @@ def generate_batch(
     Y,  # Function values
     batch_size,
     n_candidates=None,  # Number of candidates for Thompson sampling 
-    num_restarts=10,
+    num_restarts=8,
     raw_samples=256,
     acqf="ts",  # "ei" or "ts"
     dtype=torch.float32,
@@ -70,11 +70,13 @@ def generate_batch(
     weights = torch.ones_like(x_center)*8 # less than 4 stdevs on either side max 
     tr_lb = x_center - weights * state.length / 2.0
     tr_ub = x_center + weights * state.length / 2.0 
-
+    ls = model.covar_module.base_kernel.lengthscale
+    tr_lb = x_center.to(ls) - ls * 0.1 # The default size of the 
+    tr_ub = x_center.to(ls) + ls * 0.1 # The default size of the  
     if acqf == "ei":
         try:
-            ei = qExpectedImprovement(model.cuda(), Y.max().cuda() ) 
-            X_next, _ = optimize_acqf(ei,bounds=torch.stack([tr_lb, tr_ub]).cuda(),q=batch_size, num_restarts=num_restarts,raw_samples=raw_samples,)
+            ei = qLogExpectedImprovement(model.cuda(), Y.max().cuda() ) 
+            X_next, _ = optimize_acqf(ei,bounds=torch.stack([tr_lb, tr_ub]).squeeze(1).cuda(),q=batch_size, num_restarts=num_restarts,raw_samples=raw_samples,)
         except: 
             acqf = 'ts'
 
