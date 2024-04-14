@@ -50,18 +50,9 @@ def construct_script(args, cluster_oe_dir):
 
     script = list()
     script.append("#!/bin/bash")
-    script.append(f"#SBATCH --time {args.time}")
-    # script.append(f"#SBATCH -A {args.project}")
-    if 'x_carhv' in os.getcwd():
-        script.append(f"#SBATCH -A {args.project}")
-        script.append(f'#SBATCH -n 1')
-        script.append(f'#SBATCH --array 0-{num_tasks-1}')
-        script.append(f'#SBATCH --mem-per-cpu 8000')
-    else:
-        script.append(f"#SBATCH --partition bosch_cpu-cascadelake")
-        script.append(f"#SBATCH --mem 30G")
-        script.append(f'#SBATCH --array 0-{num_tasks-1}%40')
-        script.append(f'#SBATCH -c 6')
+    script.append(f"#SBATCH --time {args.time}") 
+    script.append(f"#SBATCH -A {args.project}")
+    script.append(f"#SBATCH --gpus-per-node {args.gpus}")
     script.append(f"#SBATCH --job-name {args.job_name}")
     script.append(f"#SBATCH --time {args.time}")
 
@@ -84,10 +75,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--experiment_group", default="test")
     parser.add_argument("--project", default="NAISS2024-22-232 -p alvis")
-    parser.add_argument("--gpus-per-node", default="T4:1") #Ours
-    parser.add_argument("--time", default="4:00:00")
+    parser.add_argument("--gpus", default="T4:1") #Ours
+    parser.add_argument("--time", default="8:00:00")
     parser.add_argument("--job_name", default="test")
-    parser.add_argument("--memory", default=0, type=int)
     parser.add_argument("--arguments", nargs="+")
 
     args = parser.parse_args()
