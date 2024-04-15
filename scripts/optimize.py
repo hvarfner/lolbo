@@ -48,18 +48,20 @@ class Optimize(object):
         wandb_entity: str="",
         wandb_project_name: str="",
         minimize: bool=False,
-        max_n_oracle_calls: int=100_000,
-        learning_rte: float=0.001,
+        num_iter: int=100_000,
+        vae_learning_rte: float=0.001,
+        gp_learning_rte: float=0.001,
         acq_func: str="ts",
         model: str="dkl",
         bsz: int=10,
-        num_initialization_points: int=10_000,
+        num_init: int=10_000,
         init_n_update_epochs: int=20,
         num_update_epochs: int=2,
         e2e_freq: int=10,
         update_e2e: bool=True,
         k: int=1_000,
         verbose: bool=True,
+        experiment_name: str = "test",
     ):
 
         # add all local args to method args dict to be logged by wandb
@@ -70,12 +72,13 @@ class Optimize(object):
         self.track_with_wandb = track_with_wandb
         self.wandb_entity = wandb_entity 
         self.task_id = task_id
-        self.max_n_oracle_calls = max_n_oracle_calls
+        self.max_n_oracle_calls = num_iter
         self.verbose = verbose
-        self.num_initialization_points = num_initialization_points
+        self.num_initialization_points = num_init
         self.e2e_freq = e2e_freq
         self.model = model
         self.update_e2e = update_e2e 
+        self.experiment_name = experiment_name
         self.set_seed()
         if wandb_project_name: # if project name specified
             self.wandb_project_name = wandb_project_name
@@ -109,7 +112,8 @@ class Optimize(object):
             k=k,
             num_update_epochs=num_update_epochs,
             init_n_epochs=init_n_update_epochs,
-            learning_rte=learning_rte,
+            vae_learning_rte=vae_learning_rte,
+            gp_learning_rte=gp_learning_rte,
             bsz=bsz,
             acq_func=acq_func,
             model_class=model,
@@ -195,13 +199,63 @@ class Optimize(object):
             # update models end to end when we fail to make
             #   progress e2e_freq times in a row (e2e_freq=10 by default)
             if (self.lolbo_state.progress_fails_since_last_e2e >= self.e2e_freq) and self.update_e2e:
+                print("update")
                 self.lolbo_state.update_models_e2e()
+                print("recenter")
                 self.lolbo_state.recenter()
                 self.save_to_csv()
             
             else: # otherwise, just update the surrogate model on data
                 self.lolbo_state.update_surrogate_model()
             # generate new candidate points, evaluate them, and update data
+            print("acq")
+            self.lolbo_state.acquisition()
+            if self.lolbo_state.tr_state.restart_triggered:
+                self.lolbo_state.initialize_tr_state()
+            # if a new best has been found, print out new best input and score:
+            if self.lolbo_state.new_best_found:
+                if self.verbose:
+                    print("\nNew best found:")
+                    self.print_progress_update()
+                self.lolbo_state.new_best_found = False
+            self.save_to_csv()
+        
+        self.save_to_csv()
+        # if verbose, print final results
+        if self.verbose:
+            print("\nOptimization Run Finished, Final Results:")
+            self.print_progress_update()
+
+            
+        return self  
+    
+    
+    def run_vanilla(self): 
+        ''' Main optimization loop
+        '''
+        # creates wandb tracker iff self.track_with_wandb == True
+        self.create_wandb_tracker()
+        #main optimization loop
+        print(self.lolbo_state.model.covar_module.base_kernel.lengthscale)
+        self.lolbo_state.update_surrogate_model()
+
+        print(self.lolbo_state.model.covar_module.base_kernel.lengthscale)
+        breakpoint()
+        while self.lolbo_state.objective.num_calls < self.max_n_oracle_calls:
+            self.log_data_to_wandb_on_each_loop()
+            # update models end to end when we fail to make
+            #   progress e2e_freq times in a row (e2e_freq=10 by default)
+            if (self.lolbo_state.progress_fails_since_last_e2e >= self.e2e_freq) and self.update_e2e:
+                print("update")
+                self.lolbo_state.update_models_e2e()
+                print("recenter")
+                self.lolbo_state.recenter()
+                self.save_to_csv()
+            
+            else: # otherwise, just update the surrogate model on data
+                self.lolbo_state.update_surrogate_model()
+            # generate new candidate points, evaluate them, and update data
+            print("acq")
             self.lolbo_state.acquisition()
             if self.lolbo_state.tr_state.restart_triggered:
                 self.lolbo_state.initialize_tr_state()
@@ -256,8 +310,8 @@ class Optimize(object):
 
     def save_to_csv(self, save_best_nbr: int = 1000):
         save_dir = os.environ.get("SAVE_DIR", "..")
-        res_save_path = f"{save_dir}/result_values/{self.task_id}/{self.model}"
-        str_save_path = f"{save_dir}/result_strings/{self.task_id}/{self.model}"
+        res_save_path = f"{save_dir}/result_values/{self.experiment_name}/{self.task_id}/{self.model}"
+        str_save_path = f"{save_dir}/result_strings/{self.experiment_name}/{self.task_id}/{self.model}"
         os.makedirs(res_save_path, exist_ok=True)
         os.makedirs(str_save_path, exist_ok=True)
         Y = self.lolbo_state.train_y.flatten()
