@@ -39,6 +39,8 @@ def parse_argument_string(args):
 
     argument_settings = get_all_argument_settings(args.arguments)
     argument_strings = list(get_all_argument_strings(argument_settings))
+    argument_strings = [(" " + a).replace(" ", " --").strip() for a in argument_strings]
+    
     argument_string = "\n".join(argument_strings)
     argument_final_string = f"ARGS=(\n{argument_string}\n)"
 
@@ -47,27 +49,26 @@ def parse_argument_string(args):
 
 def construct_script(args, cluster_oe_dir):
     argument_string, num_tasks = parse_argument_string(args)
-
     script = list()
     script.append("#!/bin/bash")
-    script.append(f"#SBATCH --time {args.time}") 
-    script.append(f"#SBATCH -A {args.project}")
-    script.append(f"#SBATCH --gpus-per-node {args.gpus}")
-    script.append(f"#SBATCH --job-name {args.job_name}")
     script.append(f"#SBATCH --time {args.time}")
+    script.append(f"#SBATCH -A {args.project}")
+    script.append(f'#SBATCH --gpus-per-node {args.gpus}')
+    script.append(f'#SBATCH --array 0-{num_tasks-1}')
+    script.append(f"#SBATCH --job-name {args.job_name}")
 
     script.append("")
     script.append(argument_string)
     script.append("")
     script.append(
-        f"python molecule_optimization.py "
+        f"singularity run --nv container "
+        #f"python molecule_optimization.py "
         # The optional arguments for this specific task
-        f"${{ARGS[@]:{len(args.arguments)}*$SLURM_ARRAY_TASK_ID:{len(args.arguments)}}} "
+        f"${{ARGS[@]:{len(args.arguments)}*$SLURM_ARRAY_TASK_ID:{len(args.arguments)}}}"
+        f" - run_lolbo"
         # The mandatory arguments for this specific task
-        f""
-        "- run_prediction"
     )
-# --task_id pdop --max_string_length 400 --max_n_oracle_calls 120000 --bsz 10 --model vanilla --acq_func ei - run_lolbo - done
+
     return "\n".join(script) + "\n", argument_string  # type: ignore[assignment]
 
 
@@ -78,6 +79,7 @@ if __name__ == "__main__":
     parser.add_argument("--gpus", default="T4:1") #Ours
     parser.add_argument("--time", default="8:00:00")
     parser.add_argument("--job_name", default="test")
+    parser.add_argument("--memory", default=0, type=int)
     parser.add_argument("--arguments", nargs="+")
 
     args = parser.parse_args()
@@ -91,13 +93,13 @@ if __name__ == "__main__":
     scripts_dir.mkdir(parents=True, exist_ok=True)
 
     script, runs = construct_script(args, cluster_oe_dir)
-
     num_scripts = len(list(scripts_dir.glob("*.sh")))
     script_path = Path(scripts_dir, f"{num_scripts}.sh")
     submission_commmand = f"sbatch {script_path}"
     print(f"Running {submission_commmand} with runs:\n\n{runs}")
     if input("Ok? [Y|n] -- ").lower() in {"y", ""}:
         script_path.write_text(script, encoding="utf-8")  # type: ignore[arg-type]
+        print(submission_commmand)
         os.system(submission_commmand)
     else:
         print("Not submitting.")

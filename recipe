@@ -1,0 +1,33 @@
+Bootstrap: docker
+From: python:3.10-slim
+Stage: build
+%files
+    #lolbo/
+    #scripts/
+    #/tmp/build-temp-1220727639/rootfs/scripts/
+
+%post
+    #pip install pomegranate==0.12.0
+    pip install scipy==1.8.0
+    pip install fire==0.6.0
+    pip install rdkit-pypi==2022.03.01
+    pip install gpytorch==1.11
+    pip install botorch==0.10
+    pip install guacamol==0.5.5
+    pip install wandb==0.16.4
+    pip install selfies==2.0.0
+    pip install pytorch_lightning==2.2.1
+    pip install pandas==1.4.1
+    pip install networkx==3.2.1
+    #pip install seaborn
+    pip install matplotlib
+    apt update
+    apt install -y build-essential
+    apt install -y libxrender1 libxext6 software-properties-common apt-utils
+    pip install --no-deps molsets
+    pip install fcd-torch
+    pip install scipy==1.8.0
+    
+
+%runscript
+    python molecule_optimization.py $*
