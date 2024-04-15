@@ -103,7 +103,6 @@ class VanillaBOGPModel(ApproximateGP):
             learn_inducing_locations=True
             )
         dim = inducing_points.shape[1]
-        print("VAAAAAAAAAAAAAAAAAAAAAAAAANNNNNNNIIIILLLLLLLLLLLLLLLLA!!!!!!!!!")
         
         super(VanillaBOGPModel, self).__init__(variational_strategy)
         self.mean_module = gpytorch.means.ConstantMean()

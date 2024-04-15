@@ -10,7 +10,8 @@ def update_models_end_to_end(
     objective,
     model,
     mll,
-    learning_rte,
+    vae_learning_rte,
+    gp_learning_rte,
     num_update_epochs
 ):
     '''Finetune VAE end to end with surrogate model
@@ -20,8 +21,8 @@ def update_models_end_to_end(
     objective.vae.train()
     model.train() 
     optimizer = torch.optim.Adam([
-            {'params': objective.vae.parameters()},
-            {'params': model.parameters(), 'lr': learning_rte} ], lr=learning_rte)
+            {'params': objective.vae.parameters(), 'lr': vae_learning_rte},
+            {'params': model.parameters(), 'lr': gp_learning_rte} ])
     # max batch size smaller to avoid memory limit with longer strings (more tokens)
     max_string_length = len(max(train_x, key=len))
     bsz = max(1, int(2560/max_string_length)) 
@@ -50,13 +51,13 @@ def update_models_end_to_end(
 def update_surr_model(
     model,
     mll,
-    learning_rte,
+    gp_learning_rte,
     train_z,
     train_y,
     n_epochs
 ):
     model = model.train() 
-    optimizer = torch.optim.Adam([{'params': model.parameters(), 'lr': learning_rte} ], lr=learning_rte)
+    optimizer = torch.optim.Adam([{'params': model.parameters(), 'lr': gp_learning_rte} ])
     train_bsz = min(len(train_y),128)
     train_dataset = TensorDataset(train_z.cuda(), train_y.cuda())
     train_loader = DataLoader(train_dataset, batch_size=train_bsz, shuffle=True)

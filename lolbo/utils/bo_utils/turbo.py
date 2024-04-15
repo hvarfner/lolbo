@@ -57,7 +57,8 @@ def generate_batch(
     batch_size,
     n_candidates=None,  # Number of candidates for Thompson sampling 
     num_restarts=8,
-    raw_samples=256,
+    raw_samples=512,
+    ls_tr_ratio=6,
     acqf="ts",  # "ei" or "ts"
     dtype=torch.float32,
     device=torch.device('cuda'),
@@ -71,8 +72,8 @@ def generate_batch(
     tr_lb = x_center - weights * state.length / 2.0
     tr_ub = x_center + weights * state.length / 2.0 
     ls = model.covar_module.base_kernel.lengthscale
-    tr_lb = x_center.to(ls) - ls * 0.1 # The default size of the 
-    tr_ub = x_center.to(ls) + ls * 0.1 # The default size of the  
+    tr_lb = x_center.to(ls) - ls / ls_tr_ratio # The default size of the 
+    tr_ub = x_center.to(ls) + ls / ls_tr_ratio # The default size of the  
     if acqf == "ei":
         try:
             ei = qLogExpectedImprovement(model.cuda(), Y.max().cuda() ) 

@@ -15,11 +15,12 @@ class LOLBOState:
         train_x,
         train_y,
         train_z,
-        k=1_000,
-        minimize=False,
-        num_update_epochs=2,
-        init_n_epochs=20,
-        learning_rte=0.01,
+        k,
+        minimize,
+        num_update_epochs,
+        init_n_epochs,
+        vae_learning_rte,
+        gp_learning_rte,
         bsz=10,
         acq_func='ts',
         model_class='dkl',
@@ -34,7 +35,8 @@ class LOLBOState:
         self.k                  = k                 # track and update on top k scoring points found
         self.num_update_epochs  = num_update_epochs # num epochs update models
         self.init_n_epochs      = init_n_epochs     # num epochs train surr model on initial data
-        self.learning_rte       = learning_rte      # lr to use for model updates
+        self.vae_learning_rte   = vae_learning_rte  # lr to use for model updates
+        self.gp_learning_rte    = gp_learning_rte
         self.bsz                = bsz               # acquisition batch size
         self.acq_func           = acq_func          # acquisition function (Expected Improvement (ei) or Thompson Sampling (ts))
         self.verbose            = verbose
@@ -157,7 +159,7 @@ class LOLBOState:
         self.model = update_surr_model(
             self.model,
             self.mll,
-            self.learning_rte,
+            self.gp_learning_rte,
             train_z,
             train_y,
             n_epochs
@@ -180,7 +182,8 @@ class LOLBOState:
             self.objective,
             self.model,
             self.mll,
-            self.learning_rte,
+            self.vae_learning_rte,
+            self.gp_learning_rte,
             self.num_update_epochs
         )
         self.tot_num_e2e_updates += 1
