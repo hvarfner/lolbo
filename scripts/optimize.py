@@ -236,11 +236,8 @@ class Optimize(object):
         # creates wandb tracker iff self.track_with_wandb == True
         self.create_wandb_tracker()
         #main optimization loop
-        print(self.lolbo_state.model.covar_module.base_kernel.lengthscale)
-        self.lolbo_state.update_surrogate_model()
+        self.lolbo_state.initial_surrogate_model_update()
 
-        print(self.lolbo_state.model.covar_module.base_kernel.lengthscale)
-        breakpoint()
         while self.lolbo_state.objective.num_calls < self.max_n_oracle_calls:
             self.log_data_to_wandb_on_each_loop()
             # update models end to end when we fail to make

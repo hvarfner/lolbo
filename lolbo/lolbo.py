@@ -41,8 +41,6 @@ class LOLBOState:
         self.acq_func           = acq_func          # acquisition function (Expected Improvement (ei) or Thompson Sampling (ts))
         self.verbose            = verbose
         
-        self.num_update_epochs = 1
-        self.init_n_epochs = 1
         assert acq_func in ["ei", "ts"]
         if minimize:
             self.train_y = self.train_y * -1
@@ -155,7 +153,6 @@ class LOLBOState:
             n_epochs = self.num_update_epochs
             train_z = self.train_z[-self.bsz:]
             train_y = self.train_y[-self.bsz:].squeeze(-1)
-            
         self.model = update_surr_model(
             self.model,
             self.mll,
@@ -168,6 +165,20 @@ class LOLBOState:
 
         return self
 
+    def initial_surrogate_model_update(self): 
+        n_epochs = self.init_n_epochs
+        train_z = self.train_z
+        train_y = self.train_y.squeeze(-1)
+        self.model = update_surr_model(
+            self.model,
+            self.mll,
+            self.gp_learning_rte,
+            train_z,
+            train_y,
+            n_epochs
+        )
+
+        return self
 
     def update_models_e2e(self):
         '''Finetune VAE end to end with surrogate model'''
@@ -198,7 +209,7 @@ class LOLBOState:
         '''
         self.objective.vae.eval()
         self.model.train()
-        optimizer1 = torch.optim.Adam([{'params': self.model.parameters(),'lr': self.learning_rte} ], lr=self.learning_rte)
+        optimizer1 = torch.optim.Adam([{'params': self.model.parameters(),'lr': self.gp_learning_rte} ])
         new_xs = self.train_x[-self.bsz:]
         train_x = new_xs + self.top_k_xs
         max_string_len = len(max(train_x, key=len))

@@ -61,7 +61,8 @@ def update_surr_model(
     train_bsz = min(len(train_y),128)
     train_dataset = TensorDataset(train_z.cuda(), train_y.cuda())
     train_loader = DataLoader(train_dataset, batch_size=train_bsz, shuffle=True)
-    for _ in range(n_epochs):
+    for ep in range(n_epochs):
+        print(f"{ep} / {n_epochs}")
         for (inputs, scores) in train_loader:
             optimizer.zero_grad()
             output = model(inputs.cuda())
