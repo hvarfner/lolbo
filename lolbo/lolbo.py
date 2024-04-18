@@ -104,11 +104,12 @@ class LOLBOState:
             and update progress (top k scores found so far)
             and update trust region state
         '''
-        if (~duplicates).sum() > 0:
-            z_next_ = z_next_.detach().cpu()[~duplicates] 
-            y_next_ = y_next_.detach().cpu()[~duplicates]
-            x_next_ = np.array(x_next_)[~duplicates]
 
+        z_next_ = z_next_.detach().cpu()[~duplicates] 
+        y_next_ = y_next_.detach().cpu()[~duplicates]
+        x_next_ = np.array(x_next_)[~duplicates]
+        if (~duplicates).sum() > 0:
+            print(len(x_next_), len(y_next_), len(z_next_))
             if len(y_next_.shape) > 1:
                 y_next_ = y_next_.squeeze() 
             if len(z_next_.shape) == 1:
@@ -144,6 +145,7 @@ class LOLBOState:
             self.tr_state = update_state(state=self.tr_state, Y_next=y_next_)
         self.train_z = torch.cat((self.train_z, z_next_), dim=-2)
         self.train_y = torch.cat((self.train_y, y_next_), dim=-2)
+        print(len(self.train_x), len(self.train_y), len(self.train_z))
 
         return self
 
