@@ -254,6 +254,7 @@ class Optimize(object):
             # generate new candidate points, evaluate them, and update data
             print("acq")
             self.lolbo_state.acquisition()
+            print(self.lolbo_state.objective.num_calls, len(self.lolbo_state.train_x))
             if self.lolbo_state.tr_state.restart_triggered:
                 self.lolbo_state.initialize_tr_state()
             # if a new best has been found, print out new best input and score:
@@ -263,7 +264,7 @@ class Optimize(object):
                     self.print_progress_update()
                 self.lolbo_state.new_best_found = False
             self.save_to_csv()
-        
+            print(self.lolbo_state.objective.num_calls, self.max_n_oracle_calls)
         self.save_to_csv()
         # if verbose, print final results
         if self.verbose:

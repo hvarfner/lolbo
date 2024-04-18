@@ -45,11 +45,13 @@ class LatentSpaceObjective:
             z = torch.from_numpy(z).float()
         decoded_xs = self.vae_decode(z)
         scores = []
+        duplicates = []
         for x in decoded_xs:
             # if we have already computed the score, don't 
             #   re-compute (don't call oracle unnecessarily)
             if x in self.xs_to_scores_dict:
                 score = self.xs_to_scores_dict[x]
+                duplicates.append(True)
             else: # otherwise call the oracle to get score
                 score = self.query_oracle(x)
                 # add score to dict so we don't have to
@@ -61,6 +63,8 @@ class LatentSpaceObjective:
                 #   oracle entirely
                 if np.logical_not(np.isnan(score)):
                     self.num_calls += 1
+                duplicates.append(False)
+
             scores.append(score)
 
         scores_arr = np.array(scores)
@@ -75,6 +79,7 @@ class LatentSpaceObjective:
         out_dict['scores'] = scores_arr
         out_dict['valid_zs'] = valid_zs
         out_dict['decoded_xs'] = decoded_xs
+        out_dict['duplicates'] = np.array(duplicates)
         return out_dict
 
 

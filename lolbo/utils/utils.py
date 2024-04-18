@@ -54,7 +54,8 @@ def update_surr_model(
     gp_learning_rte,
     train_z,
     train_y,
-    n_epochs
+    n_epochs,
+    train_on_z: bool = False
 ):
     model = model.train() 
     optimizer = torch.optim.Adam([{'params': model.parameters(), 'lr': gp_learning_rte} ])

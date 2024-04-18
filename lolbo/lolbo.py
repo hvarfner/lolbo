@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import gpytorch
 import math
@@ -98,42 +99,47 @@ class LOLBOState:
         return self
 
 
-    def update_next(self, z_next_, y_next_, x_next_, acquisition=False):
+    def update_next(self, z_next_, y_next_, x_next_, duplicates: np.array, acquisition=False):
         '''Add new points (z_next, y_next, x_next) to train data
             and update progress (top k scores found so far)
             and update trust region state
         '''
-        z_next_ = z_next_.detach().cpu() 
-        y_next_ = y_next_.detach().cpu()
-        if len(y_next_.shape) > 1:
-            y_next_ = y_next_.squeeze() 
-        if len(z_next_.shape) == 1:
-            z_next_ = z_next_.unsqueeze(0)
-        progress = False
-        for i, score in enumerate(y_next_):
-            self.train_x.append(x_next_[i] )
-            if len(self.top_k_scores) < self.k: 
-                # if we don't yet have k top scores, add it to the list
-                self.top_k_scores.append(score.item())
-                self.top_k_xs.append(x_next_[i])
-                self.top_k_zs.append(z_next_[i].unsqueeze(-2))
-            elif score.item() > min(self.top_k_scores) and (x_next_[i] not in self.top_k_xs):
-                # if the score is better than the worst score in the top k list, upate the list
-                min_score = min(self.top_k_scores)
-                min_idx = self.top_k_scores.index(min_score)
-                self.top_k_scores[min_idx] = score.item()
-                self.top_k_xs[min_idx] = x_next_[i]
-                self.top_k_zs[min_idx] = z_next_[i].unsqueeze(-2) # .cuda()
-            #if we imporve
-            if score.item() > self.best_score_seen:
-                self.progress_fails_since_last_e2e = 0
-                progress = True
-                self.best_score_seen = score.item() #update best
-                self.best_x_seen = x_next_[i]
-                self.new_best_found = True
-        if (not progress) and acquisition: # if no progress msde, increment progress fails
-            self.progress_fails_since_last_e2e += 1
+        if (~duplicates).sum() > 0:
+            z_next_ = z_next_.detach().cpu()[~duplicates] 
+            y_next_ = y_next_.detach().cpu()[~duplicates]
+            x_next_ = np.array(x_next_)[~duplicates]
+
+            if len(y_next_.shape) > 1:
+                y_next_ = y_next_.squeeze() 
+            if len(z_next_.shape) == 1:
+                z_next_ = z_next_.unsqueeze(0)
+            progress = False
+            for i, score in enumerate(y_next_):
+                self.train_x.append(x_next_[i] )
+                if len(self.top_k_scores) < self.k: 
+                    # if we don't yet have k top scores, add it to the list
+                    self.top_k_scores.append(score.item())
+                    self.top_k_xs.append(x_next_[i])
+                    self.top_k_zs.append(z_next_[i].unsqueeze(-2))
+                elif score.item() > min(self.top_k_scores) and (x_next_[i] not in self.top_k_xs):
+                    # if the score is better than the worst score in the top k list, upate the list
+                    min_score = min(self.top_k_scores)
+                    min_idx = self.top_k_scores.index(min_score)
+                    self.top_k_scores[min_idx] = score.item()
+                    self.top_k_xs[min_idx] = x_next_[i]
+                    self.top_k_zs[min_idx] = z_next_[i].unsqueeze(-2) # .cuda()
+                #if we imporve
+                if score.item() > self.best_score_seen:
+                    self.progress_fails_since_last_e2e = 0
+                    progress = True
+                    self.best_score_seen = score.item() #update best
+                    self.best_x_seen = x_next_[i]
+                    self.new_best_found = True
+            if (not progress) and acquisition: # if no progress msde, increment progress fails
+                self.progress_fails_since_last_e2e += 1
+        
         y_next_ = y_next_.unsqueeze(-1)
+        
         if acquisition:
             self.tr_state = update_state(state=self.tr_state, Y_next=y_next_)
         self.train_z = torch.cat((self.train_z, z_next_), dim=-2)
@@ -227,6 +233,7 @@ class LOLBOState:
                 scores_arr = out_dict['scores'] 
                 valid_zs = out_dict['valid_zs']
                 selfies_list = out_dict['decoded_xs']
+                duplicates = out_dict['duplicates']
                 if len(scores_arr) > 0: # if some valid scores
                     scores_arr = torch.from_numpy(scores_arr)
                     if self.minimize:
@@ -239,7 +246,7 @@ class LOLBOState:
                     optimizer1.step() 
                     with torch.no_grad(): 
                         z = z.detach().cpu()
-                        self.update_next(z,scores_arr,selfies_list)
+                        self.update_next(z,scores_arr,selfies_list, duplicates=duplicates)
             torch.cuda.empty_cache()
         self.model.eval() 
 
@@ -265,7 +272,8 @@ class LOLBOState:
             out_dict = self.objective(z_next)
             z_next = out_dict['valid_zs']
             y_next = out_dict['scores']
-            x_next = out_dict['decoded_xs']       
+            x_next = out_dict['decoded_xs']     
+            duplicates = out_dict['duplicates']
             if self.minimize:
                 y_next = y_next * -1
         # 3. Add new evaluated points to dataset (update_next)
@@ -275,6 +283,7 @@ class LOLBOState:
                 z_next,
                 y_next,
                 x_next,
+                duplicates=duplicates,
                 acquisition=True
             )
         else:

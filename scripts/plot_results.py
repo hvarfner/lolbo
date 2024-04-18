@@ -1,3 +1,4 @@
+import os
 import math
 from typing import Union, List, Optional
 from os.path import join
@@ -13,8 +14,9 @@ plt.rcParams['font.family'] = 'serif'
 
 
 COLORS = {
-    "dkl": "red",
-    "vanilla": "blue", 
+    "dkl_ts": "red",
+    "vanilla_ts": "blue", 
+    "vanilla_ei": "green", 
 }
 
 
@@ -34,8 +36,9 @@ NICE_BENCH_NAMES = {
 }
 
 NICE_METHOD_NAMES = {
-    "dkl": "LOLBO",
-    "vanilla": "Vanilla BO",
+    "dkl_ts": "LOLBO",
+    "vanilla_ei": "Vanilla BO (EI)",
+    "vanilla_ts": "Vanilla BO (TS)",
     "unvanilla": "Unwhitened Vanilla BO",
     "unzvanilla": "$Unwhitened  k_{Henry}$",
     }
@@ -77,6 +80,7 @@ def plot_results(
     use_length: str = "min",
     plot_name: str = "lolbo_results",
     plot_each: bool = False,
+    start_at: int = 0,
 ) -> None:
     all_results = {}
     bench_paths = glob(join(path, "*"))
@@ -95,6 +99,14 @@ def plot_results(
             #method_name = NICE_METHOD_NAMES.get(method_name, method_name)
             csvs = glob(join(method, "*.csv"))
             print(bench, method, csvs)
+            
+            for csv in csvs:
+                try: 
+                    df = pd.read_csv(csv)
+                except pd.errors.EmptyDataError:
+                    print(csv, "was missing. Removing.")
+                    os.remove(csv)
+    
             csv_lengths = [len(pd.read_csv(csv)) for csv in csvs]
             result_length = eval(use_length)(csv_lengths)
             result_array = np.zeros((len(csvs), result_length)) * np.nan
@@ -116,9 +128,8 @@ def plot_results(
         for m_name, m_result in methods_for_bench.items():
             res = compute_min(m_result)
             mean, std = res.mean(axis=0), sem(res, axis=0)
-            X_plot = np.arange(0, m_result.shape[-1])
-            start_at = 0
-            X_plot, mean, std = X_plot[start_at:], mean[start_at:], std[start_at:]
+            X_plot = np.arange(0, m_result.shape[-1])[:100000]
+            X_plot, mean, std = X_plot[start_at:], mean[start_at:100000], std[start_at:100000]
             if plot_each:
                 ax.plot(X_plot, res.T, label=NICE_METHOD_NAMES.get(m_name, m_name), color=COLORS[m_name])
             else:

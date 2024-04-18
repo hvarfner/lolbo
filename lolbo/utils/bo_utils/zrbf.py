@@ -18,14 +18,13 @@ class ZRBFKernel(RBFKernel):
             diag: bool = False, 
             **params
     ):
-        print(x1.shape, x2.shape)
-        breakpoint()        
         double_dim = x1.shape[-1]
         if double_dim % 2 != 0:
             raise ValueError(f"The double dim must be divisible by 2!, is {double_dim}")
         dim = double_dim // 2
 
         # when the inputs are of different sizes, what happens? (160 x 512 / 16 x 512)
+        breakpoint()
         A = (self.lengthscale ** 2 + 
              x1[..., dim:].unsqueeze(-2) + x2[..., dim:].unsqueeze(-3)
         ).rsqrt() * self.lengthscale
