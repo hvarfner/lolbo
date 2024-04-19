@@ -20,8 +20,8 @@ class LOLBOState:
         minimize,
         num_update_epochs,
         init_n_epochs,
-        vae_learning_rte,
-        gp_learning_rte,
+        vae_learning_rate,
+        gp_learning_rate,
         bsz=10,
         acq_func='ts',
         model_class='dkl',
@@ -36,13 +36,13 @@ class LOLBOState:
         self.k                  = k                 # track and update on top k scoring points found
         self.num_update_epochs  = num_update_epochs # num epochs update models
         self.init_n_epochs      = init_n_epochs     # num epochs train surr model on initial data
-        self.vae_learning_rte   = vae_learning_rte  # lr to use for model updates
-        self.gp_learning_rte    = gp_learning_rte
+        self.vae_learning_rte   = vae_learning_rate  # lr to use for model updates
+        self.gp_learning_rte    = gp_learning_rate
         self.bsz                = bsz               # acquisition batch size
         self.acq_func           = acq_func          # acquisition function (Expected Improvement (ei) or Thompson Sampling (ts))
         self.verbose            = verbose
         
-        assert acq_func in ["ei", "ts"]
+        assert acq_func in ["ei", "ts", "logei"]
         if minimize:
             self.train_y = self.train_y * -1
 
@@ -140,8 +140,10 @@ class LOLBOState:
                 self.progress_fails_since_last_e2e += 1
         
         y_next_ = y_next_.unsqueeze(-1)
-        
-        if acquisition:
+
+        if y_next_.shape[0] == 0:
+            self.tr_state = update_state(state=self.tr_state, Y_next=torch.Tensor([-100000]))
+        else:
             self.tr_state = update_state(state=self.tr_state, Y_next=y_next_)
         self.train_z = torch.cat((self.train_z, z_next_), dim=-2)
         self.train_y = torch.cat((self.train_y, y_next_), dim=-2)
@@ -247,8 +249,8 @@ class LOLBOState:
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                     optimizer1.step() 
                     with torch.no_grad(): 
-                        z = z.detach().cpu()
-                        self.update_next(z,scores_arr,selfies_list, duplicates=duplicates)
+                        valid_zs = valid_zs.detach().cpu()
+                        self.update_next(valid_zs,scores_arr,selfies_list, duplicates=duplicates)
             torch.cuda.empty_cache()
         self.model.eval() 
 

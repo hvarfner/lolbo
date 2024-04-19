@@ -56,7 +56,7 @@ def generate_batch(
     Y,  # Function values
     batch_size,
     n_candidates=None,  # Number of candidates for Thompson sampling 
-    num_restarts=8,
+    num_restarts=4,
     raw_samples=512,
     ls_tr_ratio=6,
     acqf="ts",  # "ei" or "ts"

@@ -73,13 +73,14 @@ class LatentSpaceObjective:
         bool_arr = np.logical_not(np.isnan(scores_arr)) 
         decoded_xs = decoded_xs[bool_arr]
         scores_arr = scores_arr[bool_arr]
+        duplicates = np.array(duplicates)[bool_arr]
         valid_zs = z[bool_arr]
 
         out_dict = {}
         out_dict['scores'] = scores_arr
         out_dict['valid_zs'] = valid_zs
         out_dict['decoded_xs'] = decoded_xs
-        out_dict['duplicates'] = np.array(duplicates)
+        out_dict['duplicates'] = duplicates
         return out_dict
 
 
