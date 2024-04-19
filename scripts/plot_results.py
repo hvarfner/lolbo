@@ -19,6 +19,11 @@ COLORS = {
     "vanilla_ei": "green", 
 }
 
+REF_VALUES = {
+    "zale": 0.755,
+    "pdop": 0.8,
+    "rano": 0.955,
+}
 
 NICE_BENCH_NAMES = {
 "med1": "Median molecules 1", 
@@ -137,7 +142,7 @@ def plot_results(
                 ax.fill_between(X_plot, mean - N_ERROR * std, mean + N_ERROR * std, alpha=0.15, color=COLORS[m_name])
                 ax.plot(X_plot, mean + N_ERROR * std, alpha=0.3, color=COLORS[m_name])
                 ax.plot(X_plot, mean - N_ERROR * std, alpha=0.3, color=COLORS[m_name])
-
+        ax.axhline(REF_VALUES[b_name], linestyle="dashed")
         ylabel = "Best Observed Value"
         ax.set_ylabel(ylabel, fontsize=18)
         ax.set_xlabel("Iteration", fontsize=18)
