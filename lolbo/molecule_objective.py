@@ -97,7 +97,7 @@ class MoleculeObjective(LatentSpaceObjective):
         self.vae.max_string_length = self.max_string_length
 
 
-    def vae_forward(self, xs_batch):
+    def vae_forward(self, xs_batch, return_mu_sigma: bool = False):
         ''' Input: 
                 a list xs 
             Output: 
@@ -120,10 +120,15 @@ class MoleculeObjective(LatentSpaceObjective):
             encoded_selfie = self.dataobj.encode(tokenized_selfie).unsqueeze(0)
             X_list.append(encoded_selfie)
         X = collate_fn(X_list)
-        dict = self.vae(X.cuda())
+        dict = self.vae(X.cuda(), return_mu_sigma=return_mu_sigma)
         vae_loss, z = dict['loss'], dict['z']
         z = z.reshape(-1,self.dim)
 
+        if return_mu_sigma:
+            z_mu = dict["z_mu"].reshape(-1,self.dim)
+            z_sigma = dict["z_sigma"].reshape(-1,self.dim)
+
+            return z, vae_loss, z_mu,  z_sigma
         return z, vae_loss
 
 

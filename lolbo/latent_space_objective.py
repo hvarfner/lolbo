@@ -33,7 +33,7 @@ class LatentSpaceObjective:
         assert self.vae is not None
 
 
-    def __call__(self, z):
+    def __call__(self, z, filter_invalid: bool = True):
         ''' Input 
                 z: a numpy array or pytorch tensor of latent space points
             Output
@@ -71,16 +71,18 @@ class LatentSpaceObjective:
         decoded_xs = np.array(decoded_xs)
         # get valid zs, xs, and scores
         bool_arr = np.logical_not(np.isnan(scores_arr)) 
-        decoded_xs = decoded_xs[bool_arr]
-        scores_arr = scores_arr[bool_arr]
-        duplicates = np.array(duplicates)[bool_arr]
-        valid_zs = z[bool_arr]
+        if filter_invalid:
+            decoded_xs = decoded_xs[bool_arr]
+            scores_arr = scores_arr[bool_arr]
+            duplicates = np.array(duplicates)[bool_arr]
+            z = z[bool_arr]
 
         out_dict = {}
         out_dict['scores'] = scores_arr
-        out_dict['valid_zs'] = valid_zs
+        out_dict['valid_zs'] = z
         out_dict['decoded_xs'] = decoded_xs
         out_dict['duplicates'] = duplicates
+        out_dict['bool_arr'] = bool_arr
         return out_dict
 
 

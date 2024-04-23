@@ -1,4 +1,7 @@
+import math
+from typing import Any
 import torch
+from torch import Tensor
 import random
 import numpy as np
 import fire
@@ -11,11 +14,13 @@ import os
 os.environ["WANDB_SILENT"] = "True"
 from lolbo.lolbo import LOLBOState
 from lolbo.latent_space_objective import LatentSpaceObjective
+from lolbo.utils.pred_utils import batchable, plot_predictions
 try:
     import wandb
     WANDB_IMPORTED_SUCCESSFULLY = True
 except ModuleNotFoundError:
     WANDB_IMPORTED_SUCCESSFULLY = False
+
 
 
 class Optimize(object):
@@ -62,8 +67,9 @@ class Optimize(object):
         k: int=1_000,
         verbose: bool=True,
         experiment_name: str = "test",
+        z_as_dist: bool  = True,
+        normalize_y: bool = True,
     ):
-
         # add all local args to method args dict to be logged by wandb
         self.method_args = {}
         self.method_args['init'] = locals()
@@ -117,7 +123,8 @@ class Optimize(object):
             bsz=bsz,
             acq_func=acq_func,
             model_class=model,
-            verbose=verbose
+            verbose=verbose,
+            normalize_y=normalize_y,
         )
 
 
@@ -243,16 +250,13 @@ class Optimize(object):
             # update models end to end when we fail to make
             #   progress e2e_freq times in a row (e2e_freq=10 by default)
             if (self.lolbo_state.progress_fails_since_last_e2e >= self.e2e_freq) and self.update_e2e:
-                print("update")
                 self.lolbo_state.update_models_e2e()
-                print("recenter")
                 self.lolbo_state.recenter()
                 self.save_to_csv()
             
             else: # otherwise, just update the surrogate model on data
                 self.lolbo_state.update_surrogate_model()
             # generate new candidate points, evaluate them, and update data
-            print("acq")
             self.lolbo_state.acquisition()
             print(self.lolbo_state.objective.num_calls, len(self.lolbo_state.train_x))
             if self.lolbo_state.tr_state.restart_triggered:
@@ -274,6 +278,93 @@ class Optimize(object):
             
         return self  
 
+    @batchable
+    def _get_predictions(self, X: list):
+        gp = self.lolbo_state.model
+        obj = self.lolbo_state.objective
+        obj.vae.eval()
+        gp.eval()
+        z, loss, z_mu, z_sigma = obj.vae_forward(X, return_mu_sigma=True)
+        post = gp.posterior(z_mu)
+
+        return z_mu, post.mean, post.variance.sqrt()
+    
+    @batchable
+    def _get_train_predictions(self, Z: list):
+        gp = self.lolbo_state.model
+        obj = self.lolbo_state.objective
+        gp.eval()
+        post = gp.posterior(Z.cuda())
+        
+        return (
+            post.mean * self.lolbo_state.ystd + self.lolbo_state.ymean, 
+            post.variance.sqrt() * self.lolbo_state.ystd,
+        )
+    
+
+    @batchable
+    def _get_output(self, X, Z_mu: Tensor):
+        obj = self.lolbo_state.objective
+        obj.vae.eval()
+        decoded_output = obj(Z_mu, filter_invalid=False)
+        recon_error = decoded_output["decoded_xs"] == np.array(X)
+        valid = decoded_output["bool_arr"]
+        return Tensor(recon_error), Tensor(valid)
+
+    @batchable
+    def get_latent_pred(self, Z_sample: Tensor):
+        gp = self.lolbo_state.model
+        obj = self.lolbo_state.objective
+        obj.vae.eval()
+        gp.eval()
+        decoded_output = obj(Z_sample, filter_invalid=False)
+        post = gp.posterior(Z_sample)
+        valid = decoded_output["bool_arr"]
+        y_decoded = Tensor(decoded_output["scores"])
+        return (
+            y_decoded.unsqueeze(-1), 
+            post.mean * self.lolbo_state.ystd + self.lolbo_state.ymean, 
+            post.variance.sqrt() * self.lolbo_state.ystd,
+        )
+    
+
+    def run_prediction(self):
+        # calibrate the GP by itself, then do the end-to-end
+        # not really necessary for DKL since there are (almost) no GP HPs to 
+        # tune anyway
+        DIM = 256
+        num_test = self.num_initialization_points // 4
+        if "dkl" not in self.model:
+            print("Initial update")
+            self.lolbo_state.initial_surrogate_model_update()
+        print("End to end")
+        self.lolbo_state.update_surrogate_model()
+        print("\n\nDone. Starting the predictions!\n\n")
+        latent_mean, latent_std = self._get_train_predictions(self.lolbo_state.train_z)
+        
+        Z_mu, latent_sampled_mean, latent_sampled_std = self._get_predictions(self.init_train_x)
+        #recon_error, num_valid = self._get_output(self.init_train_x, Z_mu)
+        Z_sample = torch.randn(num_test, DIM).to(Z_mu)
+        y_decoded, mean, std = self.get_latent_pred(Z_sample)
+
+        #latent_pred_rmse = torch.pow(y_decoded.cpu() - mean.cpu(), 2).mean().sqrt()
+        #breakpoint()
+        plot_predictions(
+            observations=y_decoded.cpu(), 
+            pred=mean.cpu(), 
+            uncert=std.cpu(), 
+            save_path=self.experiment_name, 
+            plot_name="decode_error",
+        )
+        #input_pred_rmse = torch.pow(self.init_train_y.cpu() - latent_mean.cpu(), 2).mean().sqrt()
+        #print(latent_pred_rmse, input_pred_rmse)
+        plot_predictions(
+            observations=self.init_train_y.cpu(), 
+            pred=latent_mean.cpu(), 
+            uncert=latent_std.cpu(), 
+            save_path=self.experiment_name, 
+            plot_name="prediction_error",
+        )
 
     def print_progress_update(self):
         ''' Important data printed each time a new

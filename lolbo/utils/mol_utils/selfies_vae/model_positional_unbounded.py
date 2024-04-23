@@ -228,7 +228,7 @@ class InfoTransformerVAE(pl.LightningModule):
 
         return torch.tensor(v, dtype=torch.float, device=device) 
 
-    def forward(self, tokens):
+    def forward(self, tokens, return_mu_sigma: bool = False):
         mu, sigma = self.encode(tokens)
 
         if self.is_autoencoder:
@@ -253,8 +253,8 @@ class InfoTransformerVAE(pl.LightningModule):
         loss = primary_loss
         print("Sample", (logits.argmax(dim=-1) == tokens).float().mean().item(), (logits.argmax(dim=-1) == tokens).all(dim=1).float().mean(dim=0).item()    )
         print("Mean", (mu_logits.argmax(dim=-1) == tokens).float().mean().item(), (mu_logits.argmax(dim=-1) == tokens).all(dim=1).float().mean(dim=0).item()    )
-        
-        return dict(
+
+        return_dict = dict(
             loss=loss, z=z,
             recon_loss=recon_loss,
             kldiv=kldiv,
@@ -262,7 +262,11 @@ class InfoTransformerVAE(pl.LightningModule):
             recon_string_acc=(logits.argmax(dim=-1) == tokens).all(dim=1).float().mean(dim=0),
             sigma_mean=sigma.mean(),
         )
-
+        if return_mu_sigma:
+            return_dict["z_mu"] = mu 
+            return_dict["z_sigma"] = sigma 
+        return return_dict
+    
 
 class VAEModule(pl.LightningModule):
     def __init__(self,

@@ -26,11 +26,13 @@ class LOLBOState:
         acq_func='ts',
         model_class='dkl',
         verbose=True,
+        normalize_y: bool = False,
+        sample_init_z: bool = False,
         ):
         self.model_class = get_model(model_class)
         self.objective          = objective         # objective with vae for particular task
         self.train_x            = train_x           # initial train x data
-        self.train_y            = train_y           # initial train y data
+        self.orig_train_y       = train_y           # initial train y data
         self.train_z            = train_z           # initial train z data
         self.minimize           = minimize          # if True we want to minimize the objective, otherwise we assume we want to maximize the objective
         self.k                  = k                 # track and update on top k scoring points found
@@ -41,7 +43,8 @@ class LOLBOState:
         self.bsz                = bsz               # acquisition batch size
         self.acq_func           = acq_func          # acquisition function (Expected Improvement (ei) or Thompson Sampling (ts))
         self.verbose            = verbose
-        
+        self.normalize_y        = normalize_y
+        self.sample_init_z      = sample_init_z
         assert acq_func in ["ei", "ts", "logei"]
         if minimize:
             self.train_y = self.train_y * -1
@@ -53,11 +56,21 @@ class LOLBOState:
         self.initial_model_training_complete = False # initial training of surrogate model uses all data for more epochs
         self.new_best_found = False
 
+        self._normalize_y()
         self.initialize_top_k()
         self.initialize_surrogate_model()
         self.initialize_tr_state()
         self.initialize_xs_to_scores_dict()
 
+    def _normalize_y(self):
+        if self.normalize_y:
+            self.ystd = self.orig_train_y.std()
+            self.ymean = self.orig_train_y.mean()
+            self.train_y = (self.orig_train_y - self.ymean) / self.ystd
+        else:
+            self.train_y = self.orig_train_y
+            self.ystd = 1
+            self.ymean = 0
 
     def initialize_xs_to_scores_dict(self,):
         # put initial xs and ys in dict to be tracked by objective
@@ -146,13 +159,13 @@ class LOLBOState:
         else:
             self.tr_state = update_state(state=self.tr_state, Y_next=y_next_)
         self.train_z = torch.cat((self.train_z, z_next_), dim=-2)
-        self.train_y = torch.cat((self.train_y, y_next_), dim=-2)
-        print(len(self.train_x), len(self.train_y), len(self.train_z))
-
+        self.orig_train_y = torch.cat((self.orig_train_y, y_next_), dim=-2)
+        self._normalize_y()
         return self
 
 
     def update_surrogate_model(self): 
+        self._normalize_y()
         if not self.initial_model_training_complete:
             # first time training surr model --> train on all data
             n_epochs = self.init_n_epochs
@@ -176,6 +189,7 @@ class LOLBOState:
         return self
 
     def initial_surrogate_model_update(self): 
+        self._normalize_y()
         n_epochs = self.init_n_epochs
         train_z = self.train_z
         train_y = self.train_y.squeeze(-1)
@@ -191,6 +205,7 @@ class LOLBOState:
         return self
 
     def update_models_e2e(self):
+        self._normalize_y()
         '''Finetune VAE end to end with surrogate model'''
         self.progress_fails_since_last_e2e = 0
         new_xs = self.train_x[-self.bsz:]

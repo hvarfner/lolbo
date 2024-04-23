@@ -62,15 +62,22 @@ def update_surr_model(
     train_bsz = min(len(train_y),128)
     train_dataset = TensorDataset(train_z.cuda(), train_y.cuda())
     train_loader = DataLoader(train_dataset, batch_size=train_bsz, shuffle=True)
+    means = torch.empty(0)
+    all_scores = torch.empty(0)
     for ep in range(n_epochs):
         print(f"{ep} / {n_epochs}")
         for (inputs, scores) in train_loader:
             optimizer.zero_grad()
             output = model(inputs.cuda())
             loss = -mll(output, scores.cuda())
+            print(loss, torch.pow(output.mean - scores, 2).mean().sqrt())
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
+            if ep == (n_epochs - 1):
+                means = torch.cat((means, output.mean.flatten().to(means)))
+                all_scores = torch.cat((all_scores, torch.Tensor(scores).to(all_scores)))
+    
     model = model.eval()
 
     return model
