@@ -8,6 +8,7 @@ from lolbo.utils.bo_utils.ppgpr import (
     ZGPModel,
     UnwhitenedVanillaBOZGPModel,
     UnwhitenedVanillaBOGPModel,
+    ExactGPModel,
 )
 
 
@@ -17,6 +18,10 @@ def get_model(gp_name: str) -> GP:
     
     elif gp_name == "vanilla":
         return VanillaBOGPModel
+
+        
+    elif gp_name == "exact":
+        return ExactGPModel
     
     elif gp_name == "dkl":
         return GPModelDKL

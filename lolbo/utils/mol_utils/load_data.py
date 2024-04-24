@@ -46,7 +46,8 @@ def load_train_z(
 def compute_train_zs(
     mol_objective,
     init_train_x,
-    bsz=64
+    bsz=64,
+    train_on_z_mean: bool = False
 ):
     init_zs = []
     # make sure vae is in eval mode 
@@ -54,13 +55,12 @@ def compute_train_zs(
     n_batches = math.ceil(len(init_train_x)/bsz)
     for i in range(n_batches):
         xs_batch = init_train_x[i*bsz:(i+1)*bsz] 
-        zs, _ = mol_objective.vae_forward(xs_batch)
-        init_zs.append(zs.detach().cpu())
+        zs, _, z_mu, z_sigma = mol_objective.vae_forward(xs_batch, return_mu_sigma=True)
+        if train_on_z_mean:
+            init_zs.append(z_mu.detach().cpu())
+        else:
+            init_zs.append(zs.detach().cpu())
+
     init_zs = torch.cat(init_zs, dim=0)
-    # now save the zs so we don't have to recompute them in the future:
-    state_dict_file_type = mol_objective.path_to_vae_statedict.split('.')[-1] # usually .pt or .ckpt
-    path_to_init_train_zs = mol_objective.path_to_vae_statedict.replace(f".{state_dict_file_type}", '-train-zs.csv')
-    zs_arr = init_zs.cpu().detach().numpy()
-    pd.DataFrame(zs_arr).to_csv(path_to_init_train_zs, header=None, index=None) 
 
     return init_zs

@@ -1,12 +1,21 @@
 import numpy as np
 import torch
 import gpytorch
+from gpytorch.models import ExactGP
 import math
-from gpytorch.mlls import PredictiveLogLikelihood 
+from gpytorch.mlls import (
+    PredictiveLogLikelihood, 
+    ExactMarginalLogLikelihood
+)
 from lolbo.utils.bo_utils.turbo import TurboState, update_state, generate_batch
-from lolbo.utils.utils import update_models_end_to_end, update_surr_model
-from lolbo.utils.bo_utils.ppgpr import GPModelDKL
+from lolbo.utils.utils import (
+    update_models_end_to_end,
+    update_surr_model,
+    update_surr_model_sampled_z
+)
+from lolbo.utils.bo_utils.ppgpr import GPModelDKL, ExactGPModel
 from lolbo.utils.bo_utils.registry import get_model
+
 
 class LOLBOState:
 
@@ -26,8 +35,9 @@ class LOLBOState:
         acq_func='ts',
         model_class='dkl',
         verbose=True,
-        normalize_y: bool = False,
-        sample_init_z: bool = False,
+        normalize_y: bool = True,
+        z_as_dist: bool = False,
+        train_on_z_mean: bool = False,
         ):
         self.model_class = get_model(model_class)
         self.objective          = objective         # objective with vae for particular task
@@ -44,7 +54,9 @@ class LOLBOState:
         self.acq_func           = acq_func          # acquisition function (Expected Improvement (ei) or Thompson Sampling (ts))
         self.verbose            = verbose
         self.normalize_y        = normalize_y
-        self.sample_init_z      = sample_init_z
+        self.z_as_dist          = z_as_dist
+        self.train_on_z_mean    = train_on_z_mean
+        
         assert acq_func in ["ei", "ts", "logei"]
         if minimize:
             self.train_y = self.train_y * -1
@@ -102,12 +114,21 @@ class LOLBOState:
 
 
     def initialize_surrogate_model(self ):
-        likelihood = gpytorch.likelihoods.GaussianLikelihood().cuda() 
-        n_pts = min(self.train_z.shape[0], 1024)
-        self.model = self.model_class(self.train_z[:n_pts, :].cuda(), likelihood=likelihood ).cuda()
-        self.mll = PredictiveLogLikelihood(self.model.likelihood, self.model, num_data=self.train_z.size(-2))
-        self.model = self.model.eval() 
-        self.model = self.model.cuda()
+        if self.model_class is ExactGPModel:
+            self.model = self.model_class(
+                self.train_z.cuda(), 
+                self.train_y.cuda(), 
+            ).cuda()
+            self.mll = ExactMarginalLogLikelihood(self.model.likelihood, self.model)
+        
+        
+        else:
+            n_pts = min(self.train_z.shape[0], 1024)
+            likelihood = gpytorch.likelihoods.GaussianLikelihood()
+            self.model = self.model_class(self.train_z[:n_pts, :].cuda(), likelihood=likelihood ).cuda()
+            self.mll = PredictiveLogLikelihood(self.model.likelihood, self.model, num_data=self.train_z.size(-2))
+            self.model = self.model.eval() 
+            self.model = self.model.cuda()
 
         return self
 
@@ -170,20 +191,34 @@ class LOLBOState:
             # first time training surr model --> train on all data
             n_epochs = self.init_n_epochs
             train_z = self.train_z
+            train_x = self.train_x
             train_y = self.train_y.squeeze(-1)
         else:
             # otherwise, only train on most recent batch of data
             n_epochs = self.num_update_epochs
             train_z = self.train_z[-self.bsz:]
+            train_x = self.train_x[-self.bsz:]
             train_y = self.train_y[-self.bsz:].squeeze(-1)
-        self.model = update_surr_model(
-            self.model,
-            self.mll,
-            self.gp_learning_rte,
-            train_z,
-            train_y,
-            n_epochs
-        )
+        if self.z_as_dist:
+            self.model = update_surr_model_sampled_z(
+                train_x,
+                train_y,
+                self.objective,
+                self.model,
+                self.mll,
+                self.gp_learning_rte,
+                n_epochs
+            )
+        else:
+            self.model = update_surr_model(
+                self.model,
+                self.mll,
+                self.gp_learning_rte,
+                train_z,
+                train_y,
+                n_epochs
+            )
+
         self.initial_model_training_complete = True
 
         return self

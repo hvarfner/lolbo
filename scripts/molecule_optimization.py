@@ -40,12 +40,11 @@ class MoleculeOptimization(Optimize):
         )
         # if train zs have not been pre-computed for particular vae, compute them 
         #   by passing initialization selfies through vae 
-        if self.init_train_z is None:
-            self.init_train_z = compute_train_zs(
-                self.objective,
-                self.init_train_x,
-                z_as_dist=self.z_as_dist
-            )
+        self.init_train_z = compute_train_zs(
+            self.objective,
+            self.init_train_x,
+            train_on_z_mean=self.train_on_z_mean,
+        )
 
         return self
 

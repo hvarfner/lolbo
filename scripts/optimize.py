@@ -67,8 +67,9 @@ class Optimize(object):
         k: int=1_000,
         verbose: bool=True,
         experiment_name: str = "test",
-        z_as_dist: bool  = True,
+        z_as_dist: bool = False,
         normalize_y: bool = True,
+        train_on_z_mean: bool = False,
     ):
         # add all local args to method args dict to be logged by wandb
         self.method_args = {}
@@ -85,6 +86,7 @@ class Optimize(object):
         self.model = model
         self.update_e2e = update_e2e 
         self.experiment_name = experiment_name
+        self.train_on_z_mean = train_on_z_mean
         self.set_seed()
         if wandb_project_name: # if project name specified
             self.wandb_project_name = wandb_project_name
@@ -125,8 +127,9 @@ class Optimize(object):
             model_class=model,
             verbose=verbose,
             normalize_y=normalize_y,
+            z_as_dist=z_as_dist,
+            train_on_z_mean=train_on_z_mean,
         )
-
 
     def initialize_objective(self):
         ''' Initialize Objective for specific task
@@ -279,7 +282,7 @@ class Optimize(object):
         return self  
 
     @batchable
-    def _get_predictions(self, X: list):
+    def _get_input_predictions(self, X: list):
         gp = self.lolbo_state.model
         obj = self.lolbo_state.objective
         obj.vae.eval()
@@ -287,7 +290,11 @@ class Optimize(object):
         z, loss, z_mu, z_sigma = obj.vae_forward(X, return_mu_sigma=True)
         post = gp.posterior(z_mu)
 
-        return z_mu, post.mean, post.variance.sqrt()
+        return (
+            z_mu, 
+            post.mean  * self.lolbo_state.ystd + self.lolbo_state.ymean, 
+            post.variance.sqrt() * self.lolbo_state.ystd,
+        )
     
     @batchable
     def _get_train_predictions(self, Z: list):
@@ -312,7 +319,7 @@ class Optimize(object):
         return Tensor(recon_error), Tensor(valid)
 
     @batchable
-    def get_latent_pred(self, Z_sample: Tensor):
+    def _get_latent_predictions(self, Z_sample: Tensor):
         gp = self.lolbo_state.model
         obj = self.lolbo_state.objective
         obj.vae.eval()
@@ -334,18 +341,17 @@ class Optimize(object):
         # tune anyway
         DIM = 256
         num_test = self.num_initialization_points // 4
-        if "dkl" not in self.model:
-            print("Initial update")
-            self.lolbo_state.initial_surrogate_model_update()
+
         print("End to end")
         self.lolbo_state.update_surrogate_model()
+        self.lolbo_state.update_models_e2e()
         print("\n\nDone. Starting the predictions!\n\n")
         latent_mean, latent_std = self._get_train_predictions(self.lolbo_state.train_z)
         
-        Z_mu, latent_sampled_mean, latent_sampled_std = self._get_predictions(self.init_train_x)
+        Z_mu, latent_sampled_mean, latent_sampled_std = self._get_input_predictions(self.init_train_x)
         #recon_error, num_valid = self._get_output(self.init_train_x, Z_mu)
         Z_sample = torch.randn(num_test, DIM).to(Z_mu)
-        y_decoded, mean, std = self.get_latent_pred(Z_sample)
+        y_decoded, mean, std = self._get_latent_predictions(Z_sample)
 
         #latent_pred_rmse = torch.pow(y_decoded.cpu() - mean.cpu(), 2).mean().sqrt()
         #breakpoint()
@@ -358,12 +364,20 @@ class Optimize(object):
         )
         #input_pred_rmse = torch.pow(self.init_train_y.cpu() - latent_mean.cpu(), 2).mean().sqrt()
         #print(latent_pred_rmse, input_pred_rmse)
+        
         plot_predictions(
             observations=self.init_train_y.cpu(), 
             pred=latent_mean.cpu(), 
             uncert=latent_std.cpu(), 
             save_path=self.experiment_name, 
-            plot_name="prediction_error",
+            plot_name="prediction_error_on_train_z",
+        )
+        plot_predictions(
+            observations=self.init_train_y.cpu(), 
+            pred=latent_sampled_mean.cpu(), 
+            uncert=latent_sampled_std.cpu(), 
+            save_path=self.experiment_name, 
+            plot_name="prediction_error_on_mean",
         )
 
     def print_progress_update(self):

@@ -9,7 +9,7 @@ plt.rcParams['font.family'] = 'serif'
 
 
 def batchable(function, batch_size: int = 32):
-
+    
     def decorated(cls: Any, *batch_inputs, **kwargs):
         input_length = len(batch_inputs[0])
         num_batches = math.ceil(input_length / batch_size)
@@ -51,6 +51,7 @@ def plot_predictions(observations: Tensor, pred: Tensor, uncert: Tensor, save_pa
 
     os.makedirs(save_path, exist_ok=True)
     with torch.no_grad():
+        plt.cla()
         plt.plot(range_, range_, color='blue', linestyle="dashed")
         plt.vlines(sorted_output, sorted_means - 2 * sorted_stds, sorted_means + 2 * sorted_stds, color="grey", alpha=0.15, linewidth=0.1)
         plt.scatter(sorted_output, sorted_means, color="black", s=5)
