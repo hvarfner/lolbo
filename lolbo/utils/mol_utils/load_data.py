@@ -47,17 +47,24 @@ def compute_train_zs(
     mol_objective,
     init_train_x,
     bsz=64,
-    train_on_z_mean: bool = False
+    train_on_z_mean: bool = False,
+    z_as_dist: bool = False,
 ):
     init_zs = []
     # make sure vae is in eval mode 
     mol_objective.vae.eval() 
     n_batches = math.ceil(len(init_train_x)/bsz)
+    if all([train_on_z_mean, z_as_dist]):
+        raise ValueError("Cannot have both train_on_z_mean and z_as_dist be True.")
     for i in range(n_batches):
         xs_batch = init_train_x[i*bsz:(i+1)*bsz] 
         zs, _, z_mu, z_sigma = mol_objective.vae_forward(xs_batch, return_mu_sigma=True)
-        if train_on_z_mean:
+        if z_as_dist:
+            z = torch.cat((z_mu, z_sigma), dim=-1)
+            init_zs.append(z.detach().cpu())
+        elif train_on_z_mean:
             init_zs.append(z_mu.detach().cpu())
+    
         else:
             init_zs.append(zs.detach().cpu())
 

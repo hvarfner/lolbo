@@ -11,9 +11,11 @@ from lolbo.utils.bo_utils.turbo import TurboState, update_state, generate_batch
 from lolbo.utils.utils import (
     update_models_end_to_end,
     update_surr_model,
-    update_surr_model_sampled_z
+    update_surr_model_sampled_z,
+    update_exact_surr_model,
+    update_exact_end_to_end,
 )
-from lolbo.utils.bo_utils.ppgpr import GPModelDKL, ExactGPModel
+from lolbo.utils.bo_utils.ppgpr import GPModelDKL, ExactGPModel, ExactHenryModel, Z_to_X
 from lolbo.utils.bo_utils.registry import get_model
 
 
@@ -38,6 +40,7 @@ class LOLBOState:
         normalize_y: bool = True,
         z_as_dist: bool = False,
         train_on_z_mean: bool = False,
+        sample_z_e2e: bool = True,
         ):
         self.model_class = get_model(model_class)
         self.objective          = objective         # objective with vae for particular task
@@ -56,11 +59,12 @@ class LOLBOState:
         self.normalize_y        = normalize_y
         self.z_as_dist          = z_as_dist
         self.train_on_z_mean    = train_on_z_mean
-        
+        self.sample_z_e2e       = sample_z_e2e
+
         assert acq_func in ["ei", "ts", "logei"]
         if minimize:
             self.train_y = self.train_y * -1
-
+        
         self.progress_fails_since_last_e2e = 0
         self.tot_num_e2e_updates = 0
         self.best_score_seen = torch.max(train_y)
@@ -114,7 +118,7 @@ class LOLBOState:
 
 
     def initialize_surrogate_model(self ):
-        if self.model_class is ExactGPModel:
+        if issubclass(self.model_class, ExactGP):
             self.model = self.model_class(
                 self.train_z.cuda(), 
                 self.train_y.cuda(), 
@@ -143,7 +147,6 @@ class LOLBOState:
         y_next_ = y_next_.detach().cpu()[~duplicates]
         x_next_ = np.array(x_next_)[~duplicates]
         if (~duplicates).sum() > 0:
-            print(len(x_next_), len(y_next_), len(z_next_))
             if len(y_next_.shape) > 1:
                 y_next_ = y_next_.squeeze() 
             if len(z_next_.shape) == 1:
@@ -187,7 +190,7 @@ class LOLBOState:
 
     def update_surrogate_model(self): 
         self._normalize_y()
-        if not self.initial_model_training_complete:
+        if not self.initial_model_training_complete or isinstance(self.model, ExactGP):
             # first time training surr model --> train on all data
             n_epochs = self.init_n_epochs
             train_z = self.train_z
@@ -199,16 +202,28 @@ class LOLBOState:
             train_z = self.train_z[-self.bsz:]
             train_x = self.train_x[-self.bsz:]
             train_y = self.train_y[-self.bsz:].squeeze(-1)
+        
         if self.z_as_dist:
-            self.model = update_surr_model_sampled_z(
-                train_x,
-                train_y,
-                self.objective,
-                self.model,
-                self.mll,
-                self.gp_learning_rte,
-                n_epochs
-            )
+            if isinstance(self.model, ExactHenryModel):
+                self.model = update_exact_surr_model(
+                    train_z,
+                    train_y,
+                    self.objective,
+                    self.model,
+                    self.mll,
+                    self.gp_learning_rte,
+                    n_epochs
+                )
+            else:
+                self.model = update_surr_model_sampled_z(
+                    train_x,
+                    train_y,
+                    self.objective,
+                    self.model,
+                    self.mll,
+                    self.gp_learning_rte,
+                    n_epochs
+                )
         else:
             self.model = update_surr_model(
                 self.model,
@@ -247,7 +262,8 @@ class LOLBOState:
         new_ys = self.train_y[-self.bsz:].squeeze(-1).tolist()
         train_x = new_xs + self.top_k_xs
         train_y = torch.tensor(new_ys + self.top_k_scores).float()
-        self.objective, self.model = update_models_end_to_end(
+        if isinstance(self.model, ExactGP):
+            self.objective, self.model = update_exact_end_to_end(
             train_x,
             train_y,
             self.objective,
@@ -255,8 +271,20 @@ class LOLBOState:
             self.mll,
             self.vae_learning_rte,
             self.gp_learning_rte,
-            self.num_update_epochs
-        )
+            self.num_update_epochs,
+            )
+        else:
+            self.objective, self.model = update_models_end_to_end(
+                train_x,
+                train_y,
+                self.objective,
+                self.model,
+                self.mll,
+                self.vae_learning_rte,
+                self.gp_learning_rte,
+                self.num_update_epochs,
+                sample_z_e2e=self.sample_z_e2e
+            )
         self.tot_num_e2e_updates += 1
 
         return self
@@ -277,31 +305,32 @@ class LOLBOState:
         #   with longer strings (more tokens) 
         bsz = max(1, int(2560/max_string_len))
         num_batches = math.ceil(len(train_x) / bsz) 
-        for up_idx in range(self.num_update_epochs):
-            print(f"{up_idx+1}/{self.num_update_epochs}")
-            for batch_ix in range(num_batches):
-                start_idx, stop_idx = batch_ix*bsz, (batch_ix+1)*bsz
-                batch_list = train_x[start_idx:stop_idx] 
-                z, _ = self.objective.vae_forward(batch_list)
-                out_dict = self.objective(z)
-                scores_arr = out_dict['scores'] 
-                valid_zs = out_dict['valid_zs']
-                selfies_list = out_dict['decoded_xs']
-                duplicates = out_dict['duplicates']
-                if len(scores_arr) > 0: # if some valid scores
-                    scores_arr = torch.from_numpy(scores_arr)
-                    if self.minimize:
-                        scores_arr = scores_arr * -1
-                    pred = self.model(valid_zs)
-                    loss = -self.mll(pred, scores_arr.cuda())
-                    optimizer1.zero_grad()
-                    loss.backward()
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-                    optimizer1.step() 
-                    with torch.no_grad(): 
-                        valid_zs = valid_zs.detach().cpu()
-                        self.update_next(valid_zs,scores_arr,selfies_list, duplicates=duplicates)
-            torch.cuda.empty_cache()
+        for batch_ix in range(num_batches):
+            start_idx, stop_idx = batch_ix*bsz, (batch_ix+1)*bsz
+            batch_list = train_x[start_idx:stop_idx] 
+            z, _ = self.objective.vae_forward(batch_list)
+            out_dict = self.objective(z)
+            scores_arr = out_dict['scores'] 
+            valid_zs = out_dict['valid_zs']
+            selfies_list = out_dict['decoded_xs']
+            duplicates = out_dict['duplicates']
+            if len(scores_arr) > 0: # if some valid scores
+                scores_arr = torch.from_numpy(scores_arr)
+                if self.minimize:
+                    scores_arr = scores_arr * -1
+                #pred = self.model(valid_zs)
+                #loss = -self.mll(pred, scores_arr.cuda())
+                #optimizer1.zero_grad()
+                #loss.backward()
+                #torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                #optimizer1.step() 
+                with torch.no_grad(): 
+                    valid_zs = valid_zs.detach().cpu()
+                    if hasattr(self.model, "true_dim"):
+                        valid_zs = Z_to_X(valid_zs)
+                    print("recenter duplicates", duplicates)
+                    self.update_next(valid_zs, scores_arr, selfies_list, duplicates=duplicates)
+        torch.cuda.empty_cache()
         self.model.eval() 
 
         return self
@@ -331,6 +360,9 @@ class LOLBOState:
             if self.minimize:
                 y_next = y_next * -1
         # 3. Add new evaluated points to dataset (update_next)
+        
+        if hasattr(self.model, "true_dim"):
+            z_next = Z_to_X(z_next)
         if len(y_next) != 0:
             y_next = torch.from_numpy(y_next).float()
             self.update_next(
@@ -340,6 +372,7 @@ class LOLBOState:
                 duplicates=duplicates,
                 acquisition=True
             )
+            print(y_next, duplicates)
         else:
             self.progress_fails_since_last_e2e += 1
             if self.verbose:

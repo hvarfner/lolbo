@@ -1,6 +1,8 @@
 # ppgpr
 import math
-from .base import DenseNetwork
+import torch
+from torch import Tensor
+
 import gpytorch
 from gpytorch.models import ApproximateGP, ExactGP
 from botorch.models.gpytorch import BatchedMultiOutputGPyTorchModel
@@ -11,6 +13,8 @@ from gpytorch.variational.variational_strategy import (
 from gpytorch.variational.unwhitened_variational_strategy import (
      UnwhitenedVariationalStrategy, 
 )
+from torch.nn import Module
+from .base import DenseNetwork
 from lolbo.utils.bo_utils.latent_variational_strategy import (
      LatentVariationalStrategy, 
 )
@@ -82,7 +86,7 @@ class ZGPModel(ApproximateGP):
         mean_x = self.mean_module(x)
         covar_x = self.covar_module(x, **kwargs)
         return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
-#model.covar_module.base_kernel.lengthscale
+
     def posterior(
             self, X, output_indices=None, observation_noise=False, *args, **kwargs
         ) -> GPyTorchPosterior:
@@ -157,6 +161,48 @@ class ExactGPModel(BatchedMultiOutputGPyTorchModel, ExactGP):
         covar_x = self.covar_module(x, **kwargs)
         return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
     
+
+def Z_to_X(Z: Tensor) -> Tensor:
+    deterministic_fill = torch.zeros_like(Z)
+    return torch.cat((Z, deterministic_fill), dim=-1)    
+
+
+def check_if_z(Z_or_X: Tensor, true_dim: int) -> Tensor:
+    if Z_or_X.shape[-1] == true_dim:
+        X = Z_to_X(Z_or_X)
+    else:
+        X = Z_or_X
+    return X   
+
+
+class ExactHenryModel(BatchedMultiOutputGPyTorchModel, ExactGP):
+    def __init__(self, train_inputs, train_targets, loc: float = 0.5, scale: float = 2):
+        
+        self._set_dimensions(train_X=train_inputs, train_Y=train_targets)
+        train_inputs, train_targets, _ = self._transform_tensor_args(train_inputs, train_targets, None)
+        likelihood = gpytorch.likelihoods.GaussianLikelihood(batch_shape=self._aug_batch_shape, noise_prior=LogNormalPrior(-6, 0.1)).cuda() 
+        ExactGP.__init__(self, train_inputs, train_targets, likelihood)
+        self.mean_module = gpytorch.means.ConstantMean(batch_shape=self._aug_batch_shape)
+        dim = train_inputs.shape[-1]
+        self.true_dim = dim // 2
+        scaled_loc = (loc + math.log(dim // 2) / 2)
+        self.covar_module = ZRBFKernel(
+                ard_num_dims=dim, 
+                lengthscale_prior=LogNormalPrior(loc=scaled_loc, scale=scale),
+                batch_shape=self._aug_batch_shape
+        )
+        self.covar_module.lengthscale = math.sqrt(dim)
+        
+    def transform_inputs(self, X: Tensor, input_transform: Module | None = None) -> Tensor:
+        X = check_if_z(X, self.true_dim)
+        return super().transform_inputs(X, input_transform)
+    
+    def forward(self, x, **kwargs):
+        mean_x = self.mean_module(x)
+        covar_x = self.covar_module(x, **kwargs)
+        return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
+    
+
 
 class VanillaBOZGPModel(ApproximateGP):
     def __init__(self, inducing_points, likelihood, loc: float = 2 ** 0.5, scale: float = 2):

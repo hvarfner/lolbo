@@ -43,6 +43,7 @@ class MoleculeOptimization(Optimize):
         self.init_train_z = compute_train_zs(
             self.objective,
             self.init_train_x,
+            z_as_dist=self.z_as_dist,
             train_on_z_mean=self.train_on_z_mean,
         )
 

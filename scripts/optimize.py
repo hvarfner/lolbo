@@ -70,6 +70,7 @@ class Optimize(object):
         z_as_dist: bool = False,
         normalize_y: bool = True,
         train_on_z_mean: bool = False,
+        sample_z_e2e: bool = True,
     ):
         # add all local args to method args dict to be logged by wandb
         self.method_args = {}
@@ -87,6 +88,7 @@ class Optimize(object):
         self.update_e2e = update_e2e 
         self.experiment_name = experiment_name
         self.train_on_z_mean = train_on_z_mean
+        self.z_as_dist = z_as_dist
         self.set_seed()
         if wandb_project_name: # if project name specified
             self.wandb_project_name = wandb_project_name
@@ -129,6 +131,7 @@ class Optimize(object):
             normalize_y=normalize_y,
             z_as_dist=z_as_dist,
             train_on_z_mean=train_on_z_mean,
+            sample_z_e2e=sample_z_e2e,
         )
 
     def initialize_objective(self):
@@ -261,7 +264,6 @@ class Optimize(object):
                 self.lolbo_state.update_surrogate_model()
             # generate new candidate points, evaluate them, and update data
             self.lolbo_state.acquisition()
-            print(self.lolbo_state.objective.num_calls, len(self.lolbo_state.train_x))
             if self.lolbo_state.tr_state.restart_triggered:
                 self.lolbo_state.initialize_tr_state()
             # if a new best has been found, print out new best input and score:
@@ -271,7 +273,6 @@ class Optimize(object):
                     self.print_progress_update()
                 self.lolbo_state.new_best_found = False
             self.save_to_csv()
-            print(self.lolbo_state.objective.num_calls, self.max_n_oracle_calls)
         self.save_to_csv()
         # if verbose, print final results
         if self.verbose:
@@ -340,7 +341,7 @@ class Optimize(object):
         # not really necessary for DKL since there are (almost) no GP HPs to 
         # tune anyway
         DIM = 256
-        num_test = self.num_initialization_points // 4
+        num_test = self.num_initialization_points * 2
 
         print("End to end")
         self.lolbo_state.update_surrogate_model()
@@ -352,9 +353,7 @@ class Optimize(object):
         #recon_error, num_valid = self._get_output(self.init_train_x, Z_mu)
         Z_sample = torch.randn(num_test, DIM).to(Z_mu)
         y_decoded, mean, std = self._get_latent_predictions(Z_sample)
-
-        #latent_pred_rmse = torch.pow(y_decoded.cpu() - mean.cpu(), 2).mean().sqrt()
-        #breakpoint()
+        
         plot_predictions(
             observations=y_decoded.cpu(), 
             pred=mean.cpu(), 

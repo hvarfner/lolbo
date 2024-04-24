@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 plt.rcParams['font.family'] = 'serif'
 
 
-def batchable(function, batch_size: int = 32):
+def batchable(function, batch_size: int = 16):
     
     def decorated(cls: Any, *batch_inputs, **kwargs):
         input_length = len(batch_inputs[0])
@@ -49,7 +49,7 @@ def plot_predictions(observations: Tensor, pred: Tensor, uncert: Tensor, save_pa
     range_ = sorted_output[0] - 0.1 * diff, sorted_output[-1] + 0.1 * diff 
     input_pred_rmse = torch.pow(sorted_output - sorted_means, 2).mean().sqrt().item()
 
-    os.makedirs(save_path, exist_ok=True)
+    os.makedirs(f"../pred_plots/{save_path}", exist_ok=True)
     with torch.no_grad():
         plt.cla()
         plt.plot(range_, range_, color='blue', linestyle="dashed")
@@ -59,5 +59,5 @@ def plot_predictions(observations: Tensor, pred: Tensor, uncert: Tensor, save_pa
         plt.ylabel("Predicted values")
         plt.title(f"RMSE: {input_pred_rmse}", fontsize=16)    
         plt.grid(True)
-        plt.savefig(f"{save_path}/{plot_name}.pdf")
+        plt.savefig(f"../pred_plots/{save_path}/{plot_name}.pdf")
                 
