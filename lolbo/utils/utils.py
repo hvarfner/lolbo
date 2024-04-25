@@ -174,7 +174,7 @@ def update_exact_surr_model(
         {'params': model.parameters(), 'lr': gp_learning_rte}
     ])
     z = train_z.cuda()
-    y = train_y_scores.cuda()
+    y = train_y_scores.cuda().squeeze(-1)
     for _ in range(num_update_epochs):
         optimizer.zero_grad()
         with gpytorch.settings.debug(False):

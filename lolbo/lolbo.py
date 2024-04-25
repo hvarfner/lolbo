@@ -17,6 +17,7 @@ from lolbo.utils.utils import (
 )
 from lolbo.utils.bo_utils.ppgpr import GPModelDKL, ExactGPModel, ExactHenryModel, Z_to_X
 from lolbo.utils.bo_utils.registry import get_model
+from botorch.utils.transforms import standardize
 
 
 class LOLBOState:
@@ -62,74 +63,49 @@ class LOLBOState:
         self.sample_z_e2e       = sample_z_e2e
 
         assert acq_func in ["ei", "ts", "logei"]
-        if minimize:
-            self.train_y = self.train_y * -1
         
         self.progress_fails_since_last_e2e = 0
         self.tot_num_e2e_updates = 0
-        self.best_score_seen = torch.max(train_y)
-        self.best_x_seen = train_x[torch.argmax(train_y.squeeze())]
+        self.best_score_seen = torch.max(self.orig_train_y)
+        self.best_x_seen = train_x[torch.argmax(self.orig_train_y)]
         self.initial_model_training_complete = False # initial training of surrogate model uses all data for more epochs
         self.new_best_found = False
 
-        self._normalize_y()
-        self.initialize_top_k()
         self.initialize_surrogate_model()
         self.initialize_tr_state()
         self.initialize_xs_to_scores_dict()
-
-    def _normalize_y(self):
-        if self.normalize_y:
-            self.ystd = self.orig_train_y.std()
-            self.ymean = self.orig_train_y.mean()
-            self.train_y = (self.orig_train_y - self.ymean) / self.ystd
-        else:
-            self.train_y = self.orig_train_y
-            self.ystd = 1
-            self.ymean = 0
 
     def initialize_xs_to_scores_dict(self,):
         # put initial xs and ys in dict to be tracked by objective
         init_xs_to_scores_dict = {}
         for idx, x in enumerate(self.train_x):
-            init_xs_to_scores_dict[x] = self.train_y.squeeze()[idx].item()
+            init_xs_to_scores_dict[x] = self.orig_train_y.squeeze()[idx].item()
         self.objective.xs_to_scores_dict = init_xs_to_scores_dict
-
-
-    def initialize_top_k(self):
-        ''' Initialize top k x, y, and zs'''
-        # track top k scores found
-        self.top_k_scores, top_k_idxs = torch.topk(self.train_y.squeeze(), min(self.k, len(self.train_y)))
-        self.top_k_scores = self.top_k_scores.tolist()
-        top_k_idxs = top_k_idxs.tolist()
-        self.top_k_xs = [self.train_x[i] for i in top_k_idxs]
-        self.top_k_zs = [self.train_z[i].unsqueeze(-2) for i in top_k_idxs]
-
 
     def initialize_tr_state(self):
         # initialize turbo trust region state
         self.tr_state = TurboState( # initialize turbo state
             dim=self.train_z.shape[-1],
             batch_size=self.bsz, 
-            best_value=torch.max(self.train_y).item()
+            best_value=(torch.max(self.orig_train_y).item() - self.ymean) / self.ystd 
             )
 
         return self
 
-
     def initialize_surrogate_model(self ):
         if issubclass(self.model_class, ExactGP):
+            train_x, train_y, train_z = self.get_training_data(self.k, renormalize=True)
             self.model = self.model_class(
-                self.train_z.cuda(), 
-                self.train_y.cuda(), 
+                train_z.cuda(), 
+                train_y.cuda(), 
             ).cuda()
             self.mll = ExactMarginalLogLikelihood(self.model.likelihood, self.model)
         
-        
         else:
+            train_x, train_y, train_z = self.get_training_data(min(self.train_z.shape[0], 1024), renormalize=True)
             n_pts = min(self.train_z.shape[0], 1024)
             likelihood = gpytorch.likelihoods.GaussianLikelihood()
-            self.model = self.model_class(self.train_z[:n_pts, :].cuda(), likelihood=likelihood ).cuda()
+            self.model = self.model_class(train_z[:n_pts, :].cuda(), likelihood=likelihood ).cuda()
             self.mll = PredictiveLogLikelihood(self.model.likelihood, self.model, num_data=self.train_z.size(-2))
             self.model = self.model.eval() 
             self.model = self.model.cuda()
@@ -152,31 +128,18 @@ class LOLBOState:
             if len(z_next_.shape) == 1:
                 z_next_ = z_next_.unsqueeze(0)
             progress = False
-            for i, score in enumerate(y_next_):
-                self.train_x.append(x_next_[i] )
-                if len(self.top_k_scores) < self.k: 
-                    # if we don't yet have k top scores, add it to the list
-                    self.top_k_scores.append(score.item())
-                    self.top_k_xs.append(x_next_[i])
-                    self.top_k_zs.append(z_next_[i].unsqueeze(-2))
-                elif score.item() > min(self.top_k_scores) and (x_next_[i] not in self.top_k_xs):
-                    # if the score is better than the worst score in the top k list, upate the list
-                    min_score = min(self.top_k_scores)
-                    min_idx = self.top_k_scores.index(min_score)
-                    self.top_k_scores[min_idx] = score.item()
-                    self.top_k_xs[min_idx] = x_next_[i]
-                    self.top_k_zs[min_idx] = z_next_[i].unsqueeze(-2) # .cuda()
-                #if we imporve
-                if score.item() > self.best_score_seen:
-                    self.progress_fails_since_last_e2e = 0
-                    progress = True
-                    self.best_score_seen = score.item() #update best
-                    self.best_x_seen = x_next_[i]
-                    self.new_best_found = True
+            self.train_x.extend(x_next_)
+            
+            if y_next_.max().item() > self.best_score_seen:
+                self.progress_fails_since_last_e2e = 0
+                progress = True
+                self.best_score_seen = y_next_.max().item() #update best
+                self.best_x_seen = x_next_[y_next_.argmax().item()]
+                self.new_best_found = True
             if (not progress) and acquisition: # if no progress msde, increment progress fails
                 self.progress_fails_since_last_e2e += 1
         
-        y_next_ = y_next_.unsqueeze(-1)
+        y_next_ = y_next_.unsqueeze(-1) 
 
         if y_next_.shape[0] == 0:
             self.tr_state = update_state(state=self.tr_state, Y_next=torch.Tensor([-100000]))
@@ -184,24 +147,54 @@ class LOLBOState:
             self.tr_state = update_state(state=self.tr_state, Y_next=y_next_)
         self.train_z = torch.cat((self.train_z, z_next_), dim=-2)
         self.orig_train_y = torch.cat((self.orig_train_y, y_next_), dim=-2)
-        self._normalize_y()
+
         return self
 
+    def standardize_current_train(self, y: torch.Tensor, renormalize: bool = False):
+        if renormalize:
+            self.ystd = y.std()
+            self.ymean = y.mean()
+        
+        return (y - self.ymean) / self.ystd
+    
+
+    def get_training_data(self, k: int, recent: int = 0, renormalize: bool = False):
+        ''' get top k x, y, and zs'''
+        # track top k scores found
+        top_k_scores, top_k_idxs = torch.topk(self.orig_train_y.squeeze(), min(k, len(self.orig_train_y)))
+        top_k_xs = [self.train_x[i] for i in top_k_idxs]
+        top_k_zs = self.train_z[top_k_idxs]
+        
+        if recent > 0:
+            recent_x = self.train_x[-recent:]
+            recent_scores = self.orig_train_y[-recent:].flatten()
+            recent_z = self.train_z[-recent:]
+            x = top_k_xs + recent_x
+            y = torch.cat((top_k_scores, recent_scores))
+            z = torch.cat((top_k_zs, recent_z))
+            
+        else:            
+            x = top_k_xs
+            y = top_k_scores.to(top_k_zs).unsqueeze(-1)
+            z = top_k_zs
+        y = self.standardize_current_train(y, renormalize=renormalize)
+        
+        return x, y.to(z), z
+        
+        return 
+    
 
     def update_surrogate_model(self): 
-        self._normalize_y()
         if not self.initial_model_training_complete or isinstance(self.model, ExactGP):
             # first time training surr model --> train on all data
             n_epochs = self.init_n_epochs
-            train_z = self.train_z
-            train_x = self.train_x
-            train_y = self.train_y.squeeze(-1)
+            train_x, train_y, train_z = self.get_training_data(k=self.k, recent=0)
+
+        elif isinstance(self.model, ExactGP):
+            train_x, train_y, train_z = self.get_training_data(k=self.k, recent=self.bsz)
+
         else:
-            # otherwise, only train on most recent batch of data
-            n_epochs = self.num_update_epochs
-            train_z = self.train_z[-self.bsz:]
-            train_x = self.train_x[-self.bsz:]
-            train_y = self.train_y[-self.bsz:].squeeze(-1)
+            train_x, train_y, train_z = self.get_training_data(k=0, recent=self.bsz)
         
         if self.z_as_dist:
             if isinstance(self.model, ExactHenryModel):
@@ -238,30 +231,11 @@ class LOLBOState:
 
         return self
 
-    def initial_surrogate_model_update(self): 
-        self._normalize_y()
-        n_epochs = self.init_n_epochs
-        train_z = self.train_z
-        train_y = self.train_y.squeeze(-1)
-        self.model = update_surr_model(
-            self.model,
-            self.mll,
-            self.gp_learning_rte,
-            train_z,
-            train_y,
-            n_epochs
-        )
-
-        return self
-
     def update_models_e2e(self):
-        self._normalize_y()
         '''Finetune VAE end to end with surrogate model'''
         self.progress_fails_since_last_e2e = 0
-        new_xs = self.train_x[-self.bsz:]
-        new_ys = self.train_y[-self.bsz:].squeeze(-1).tolist()
-        train_x = new_xs + self.top_k_xs
-        train_y = torch.tensor(new_ys + self.top_k_scores).float()
+
+        train_x, train_y, train_z = self.get_training_data(k=self.k, recent=self.bsz)
         if isinstance(self.model, ExactGP):
             self.objective, self.model = update_exact_end_to_end(
             train_x,
@@ -298,8 +272,8 @@ class LOLBOState:
         self.objective.vae.eval()
         self.model.train()
         optimizer1 = torch.optim.Adam([{'params': self.model.parameters(),'lr': self.gp_learning_rte} ])
-        new_xs = self.train_x[-self.bsz:]
-        train_x = new_xs + self.top_k_xs
+        train_x, _ , _ = self.get_training_data(k=self.k, recent=self.bsz)
+
         max_string_len = len(max(train_x, key=len))
         # max batch size smaller to avoid memory limit 
         #   with longer strings (more tokens) 
@@ -319,7 +293,7 @@ class LOLBOState:
                 if self.minimize:
                     scores_arr = scores_arr * -1
                 #pred = self.model(valid_zs)
-                #loss = -self.mll(pred, scores_arr.cuda())
+                #loss = -self.mll(pred, (scores_arr  - self.ymean) / self.ystd).cuda())
                 #optimizer1.zero_grad()
                 #loss.backward()
                 #torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
@@ -342,11 +316,12 @@ class LOLBOState:
         '''
         # 1. Generate a batch of candidates in 
         #   trust region using surrogate model
+        _, train_y, train_z = self.get_training_data(k=self.k)
         z_next = generate_batch(
             state=self.tr_state,
             model=self.model,
-            X=self.train_z,
-            Y=self.train_y,
+            X=train_z,
+            Y=train_y,
             batch_size=self.bsz, 
             acqf=self.acq_func,
         )

@@ -63,7 +63,7 @@ class Optimize(object):
         init_n_update_epochs: int=20,
         num_update_epochs: int=2,
         e2e_freq: int=10,
-        update_e2e: bool=True,
+        update_e2e: bool=True,          
         k: int=1_000,
         verbose: bool=True,
         experiment_name: str = "test",
@@ -249,7 +249,6 @@ class Optimize(object):
         # creates wandb tracker iff self.track_with_wandb == True
         self.create_wandb_tracker()
         #main optimization loop
-        self.lolbo_state.initial_surrogate_model_update()
 
         while self.lolbo_state.objective.num_calls < self.max_n_oracle_calls:
             self.log_data_to_wandb_on_each_loop()
@@ -416,7 +415,7 @@ class Optimize(object):
         str_save_path = f"{save_dir}/result_strings/{self.experiment_name}/{self.task_id}/{self.model}"
         os.makedirs(res_save_path, exist_ok=True)
         os.makedirs(str_save_path, exist_ok=True)
-        Y = self.lolbo_state.train_y.flatten()
+        Y = self.lolbo_state.orig_train_y.flatten()
         df = pd.DataFrame({self.task_id: Y})
         df.to_csv(f"{res_save_path}/{self.task_id}_{self.model}_{self.seed}.csv")
         best_indices = torch.argsort(Y, descending=True)[:save_best_nbr]
