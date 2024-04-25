@@ -92,7 +92,7 @@ def update_surr_model(
             optimizer.zero_grad()
             
             output = model(inputs.cuda())
-            loss = -mll(output, scores.cuda())
+            loss = -mll(output, scores.cuda().squeeze(-1))
             loss.backward()
             optimizer.step()
             #if ep == (n_epochs - 1):

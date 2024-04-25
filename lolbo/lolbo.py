@@ -185,16 +185,20 @@ class LOLBOState:
     
 
     def update_surrogate_model(self): 
-        if not self.initial_model_training_complete or isinstance(self.model, ExactGP):
+        if not self.initial_model_training_complete:
             # first time training surr model --> train on all data
             n_epochs = self.init_n_epochs
-            train_x, train_y, train_z = self.get_training_data(k=self.k, recent=0)
-
-        elif isinstance(self.model, ExactGP):
-            train_x, train_y, train_z = self.get_training_data(k=self.k, recent=self.bsz)
+            if isinstance(self.model, ExactGP):
+                train_x, train_y, train_z = self.get_training_data(k=self.k, recent=0)
+            else:
+                train_x, train_y, train_z = self.get_training_data(k=len(self.orig_train_y), recent=0)
 
         else:
-            train_x, train_y, train_z = self.get_training_data(k=0, recent=self.bsz)
+            n_epochs = self.num_update_epochs
+            if isinstance(self.model, ExactGP):
+                train_x, train_y, train_z = self.get_training_data(k=self.k, recent=self.bsz)
+            else:
+                train_x, train_y, train_z = self.get_training_data(k=0, recent=self.bsz)
         
         if self.z_as_dist:
             if isinstance(self.model, ExactHenryModel):

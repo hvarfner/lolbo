@@ -6,7 +6,7 @@ from botorch.acquisition import qExpectedImprovement, qLogExpectedImprovement
 from botorch.optim import optimize_acqf
 from .approximate_gp import *
 from botorch.generation import MaxPosteriorSampling 
-from lolbo.utils.bo_utils.ppgpr import Z_to_X
+from lolbo.utils.bo_utils.ppgpr import Z_to_X, GPModelDKL
 
 @dataclass
 class TurboState:
@@ -72,11 +72,13 @@ def generate_batch(
         tr_dim = X.shape[-1]
     x_center = X[Y.argmax(), :tr_dim].clone()  
     weights = torch.ones_like(x_center)*8 # less than 4 stdevs on either side max 
-    #tr_lb = x_center - weights * state.length / 2.0
-    #tr_ub = x_center + weights * state.length / 2.0 
-    ls = model.covar_module.lengthscale[..., :tr_dim]
-    tr_lb = x_center.to(ls) - ls / ls_tr_ratio # The default size of the 
-    tr_ub = x_center.to(ls) + ls / ls_tr_ratio # The default size of the  
+    if isinstance(model, GPModelDKL):
+        tr_lb = x_center - weights * state.length / 2.0
+        tr_ub = x_center + weights * state.length / 2.0 
+    else:
+        ls = model.covar_module.lengthscale[..., :tr_dim]
+        tr_lb = x_center.to(ls) - ls / ls_tr_ratio # The default size of the 
+        tr_ub = x_center.to(ls) + ls / ls_tr_ratio # The default size of the  
 
     if acqf == "ei":
         ei = qLogExpectedImprovement(model.cuda(), Y.max().cuda() ) 
