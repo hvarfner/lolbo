@@ -71,6 +71,7 @@ class Optimize(object):
         normalize_y: bool = True,
         train_on_z_mean: bool = False,
         sample_z_e2e: bool = True,
+        sample_scale: float = 1.0,
     ):
         # add all local args to method args dict to be logged by wandb
         self.method_args = {}
@@ -89,6 +90,7 @@ class Optimize(object):
         self.experiment_name = experiment_name
         self.train_on_z_mean = train_on_z_mean
         self.z_as_dist = z_as_dist
+        self.sample_scale = sample_scale
         self.set_seed()
         if wandb_project_name: # if project name specified
             self.wandb_project_name = wandb_project_name
@@ -340,7 +342,7 @@ class Optimize(object):
         # not really necessary for DKL since there are (almost) no GP HPs to 
         # tune anyway
         DIM = 256
-        num_test = self.num_initialization_points * 2
+        num_test = self.num_initialization_points * 100 
 
         print("End to end")
         self.lolbo_state.update_surrogate_model()
@@ -350,9 +352,13 @@ class Optimize(object):
         
         Z_mu, latent_sampled_mean, latent_sampled_std = self._get_input_predictions(self.init_train_x)
         #recon_error, num_valid = self._get_output(self.init_train_x, Z_mu)
-        Z_sample = torch.randn(num_test, DIM).to(Z_mu)
+        Z_sample = torch.randn(num_test, DIM).to(Z_mu) * self.sample_scale
+        
         y_decoded, mean, std = self._get_latent_predictions(Z_sample)
         
+        os.makedirs(f"{self.experiment_name}/{self.task_id}", exist_ok=True)
+        pd.DataFrame(y_decoded.detach().numpy()).to_csv(f"{self.experiment_name}/{self.task_id}/{self.sample_scale}_vae_samples.csv")
+        raise SystemExit
         plot_predictions(
             observations=y_decoded.cpu(), 
             pred=mean.cpu(), 
