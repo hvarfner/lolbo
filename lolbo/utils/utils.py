@@ -98,7 +98,6 @@ def update_surr_model(
             #if ep == (n_epochs - 1):
             #    means = torch.cat((means, output.mean.flatten().to(means)))
             #    all_scores = torch.cat((all_scores, torch.Tensor(scores).to(all_scores)))
-    post = model.posterior(inputs)
     model = model.eval()
 
     return model

@@ -76,7 +76,7 @@ def generate_batch(
         tr_lb = x_center - weights * state.length / 2.0
         tr_ub = x_center + weights * state.length / 2.0 
     else:
-        ls = model.covar_module.lengthscale[..., :tr_dim]
+        ls = model.covar_module.base_kernel.lengthscale[..., :tr_dim]
         tr_lb = x_center.to(ls) - ls / ls_tr_ratio # The default size of the 
         tr_ub = x_center.to(ls) + ls / ls_tr_ratio # The default size of the  
 
