@@ -12,6 +12,7 @@ from lolbo.utils.bo_utils.ppgpr import (
     ExactHenryModel,
     DeepGPModelDKL,
     ShallowGPModelDKL,
+    DeeperGPModelDKL,
 )
 
 
@@ -33,6 +34,9 @@ def get_model(gp_name: str) -> GP:
     
     elif gp_name == "deepdkl":
         return DeepGPModelDKL
+
+    elif gp_name == "deeperdkl":
+        return DeeperGPModelDKL
     
     elif gp_name == "shallowdkl":
         return ShallowGPModelDKL
