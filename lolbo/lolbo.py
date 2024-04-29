@@ -61,8 +61,8 @@ class LOLBOState:
         self.z_as_dist          = z_as_dist
         self.train_on_z_mean    = train_on_z_mean
         self.sample_z_e2e       = sample_z_e2e
-
-        assert acq_func in ["ei", "ts", "logei"]
+        self.z_acqtype = ["i"] * len(self.orig_train_y)
+        assert acq_func in ["ei", "ts", "logei", "ana_ts"]
         
         self.progress_fails_since_last_e2e = 0
         self.tot_num_e2e_updates = 0
@@ -146,8 +146,13 @@ class LOLBOState:
         else:
             self.tr_state = update_state(state=self.tr_state, Y_next=y_next_)
         self.train_z = torch.cat((self.train_z, z_next_), dim=-2)
-        self.orig_train_y = torch.cat((self.orig_train_y, y_next_), dim=-2)
+        for z_idx in range(len(z_next_)):
+            if acquisition:
+                self.z_acqtype.append("a")
+            else:
+                self.z_acqtype.append("r")
 
+        self.orig_train_y = torch.cat((self.orig_train_y, y_next_), dim=-2)
         return self
 
     def standardize_current_train(self, y: torch.Tensor, renormalize: bool = False):

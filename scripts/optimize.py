@@ -214,16 +214,13 @@ class Optimize(object):
             # update models end to end when we fail to make
             #   progress e2e_freq times in a row (e2e_freq=10 by default)
             if (self.lolbo_state.progress_fails_since_last_e2e >= self.e2e_freq) and self.update_e2e:
-                print("update")
                 self.lolbo_state.update_models_e2e()
-                print("recenter")
                 self.lolbo_state.recenter()
                 self.save_to_csv()
             
             else: # otherwise, just update the surrogate model on data
                 self.lolbo_state.update_surrogate_model()
             # generate new candidate points, evaluate them, and update data
-            print("acq")
             self.lolbo_state.acquisition()
             if self.lolbo_state.tr_state.restart_triggered:
                 self.lolbo_state.initialize_tr_state()
@@ -386,7 +383,7 @@ class Optimize(object):
 
     def print_progress_update(self):
         ''' Important data printed each time a new
-            best input is found, as well as at the end 
+            best input is found, as well as at the end prediction
             of the optimization run
             (only used if self.verbose==True)
             More print statements can be added her as desired
@@ -419,8 +416,10 @@ class Optimize(object):
         save_dir = os.environ.get("SAVE_DIR", "..")
         res_save_path = f"{save_dir}/result_values/{self.experiment_name}/{self.task_id}/{self.model}"
         str_save_path = f"{save_dir}/result_strings/{self.experiment_name}/{self.task_id}/{self.model}"
+        z_save_path = f"{save_dir}/result_z/{self.experiment_name}/{self.task_id}/{self.model}"
         os.makedirs(res_save_path, exist_ok=True)
         os.makedirs(str_save_path, exist_ok=True)
+        os.makedirs(z_save_path, exist_ok=True)
         Y = self.lolbo_state.orig_train_y.flatten()
         df = pd.DataFrame({self.task_id: Y})
         df.to_csv(f"{res_save_path}/{self.task_id}_{self.model}_{self.seed}.csv")
@@ -428,6 +427,11 @@ class Optimize(object):
         best_X = np.array(self.lolbo_state.train_x)[best_indices].tolist()
         best_y = Y[best_indices]
         df_indices = pd.DataFrame({"string": best_X, "{self.task_id}": best_y})
+        
+        df_z = pd.DataFrame(self.lolbo_state.train_z.numpy().astype(np.float16))
+        df_z["acqtype"] = self.lolbo_state.z_acqtype
+        df_z.to_csv(f"{z_save_path}/{self.task_id}_{self.model}_{self.seed}_z.csv")
+
         df.to_csv(f"{str_save_path}/{self.task_id}_{self.model}_{self.seed}_strings.csv")
 
 
