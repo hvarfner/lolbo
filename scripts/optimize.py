@@ -432,7 +432,7 @@ class Optimize(object):
         df_z["acqtype"] = self.lolbo_state.z_acqtype
         df_z.to_csv(f"{z_save_path}/{self.task_id}_{self.model}_{self.seed}_z.csv")
 
-        df.to_csv(f"{str_save_path}/{self.task_id}_{self.model}_{self.seed}_strings.csv")
+        df_indices.to_csv(f"{str_save_path}/{self.task_id}_{self.model}_{self.seed}_strings.csv")
 
 
 
