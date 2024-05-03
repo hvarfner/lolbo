@@ -415,10 +415,10 @@ class Optimize(object):
 
     def save_to_csv(self, save_best_nbr: int = 1000):
         save_dir = os.environ.get("SAVE_DIR", "..")
-        res_save_path = f"{save_dir}/result_values/{self.experiment_name}/{self.task_id}/{self.model}"
-        str_save_path = f"{save_dir}/result_strings/{self.experiment_name}/{self.task_id}/{self.model}"
-        z_save_path = f"{save_dir}/result_z/{self.experiment_name}/{self.task_id}/{self.model}"
-        dups_save_path = f"{save_dir}/duplicates/{self.experiment_name}/{self.task_id}/{self.model}"
+        res_save_path = f"{save_dir}/result_values/{self.experiment_name}/{self.task_id}/{self.model}_{self.acq_func}"
+        str_save_path = f"{save_dir}/result_strings/{self.experiment_name}/{self.task_id}/{self.model}_{self.acq_func}"
+        z_save_path = f"{save_dir}/result_z/{self.experiment_name}/{self.task_id}/{self.model}_{self.acq_func}"
+        dups_save_path = f"{save_dir}/duplicates/{self.experiment_name}/{self.task_id}/{self.model}_{self.acq_func}"
         os.makedirs(res_save_path, exist_ok=True)
         os.makedirs(str_save_path, exist_ok=True)
         os.makedirs(z_save_path, exist_ok=True)

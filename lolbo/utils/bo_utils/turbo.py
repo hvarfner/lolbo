@@ -181,9 +181,9 @@ def generate_batch(
     dtype=torch.float32,
     device=torch.device('cuda'),
 ):
-    assert acqf in ("ts", "ana_ts", "ei")
+    assert acqf in ("ts", "ana_ts", "ei", "unmasked_ts")
     assert torch.all(torch.isfinite(Y))
-    if n_candidates is None: n_candidates = min(64, max(1000, 200 * X.shape[-1]))
+    if n_candidates is None: n_candidates = min(2048, max(1000, 200 * X.shape[-1]))
     
     if hasattr(model, "true_dim"):
         tr_dim = model.true_dim

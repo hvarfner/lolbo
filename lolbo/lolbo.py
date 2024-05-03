@@ -65,7 +65,7 @@ class LOLBOState:
         self.train_on_z_mean    = train_on_z_mean
         self.sample_z_e2e       = sample_z_e2e
         self.z_acqtype = ["i"] * len(self.orig_train_y)
-        assert acq_func in ["ei", "ts", "logei", "ana_ts"]
+        assert acq_func in ["ei", "ts", "logei", "ana_ts", "unmasked_ts"]
         self.duplicates = []
         self.progress_fails_since_last_e2e = 0
         self.tot_num_e2e_updates = 0
