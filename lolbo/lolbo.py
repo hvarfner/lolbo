@@ -103,10 +103,12 @@ class LOLBOState:
             z_mu, z_sigma, batch_losses  = _get_predictions(None, train_x, obj=self.objective, return_loss=True)
             z_cat = torch.cat((z_mu, z_sigma), dim=-1) 
             self.model = self.model_class(
-                z_cat, 
+                z_cat.cuda(), 
                 train_y.cuda(), 
             ).cuda()
-            self.mll = ExactMarginalLogLikelihood(self.model.likelihood, self.model)
+            self.model.likelihood.cuda()
+        
+            self.mll = ExactMarginalLogLikelihood(self.model.likelihood, self.model).cuda()
         
         elif issubclass(self.model_class, ExactGP):
             train_x, train_y, train_z = self.get_training_data(self.k, renormalize=True)
@@ -114,7 +116,7 @@ class LOLBOState:
                 train_z.cuda(), 
                 train_y.cuda(), 
             ).cuda()
-            self.mll = ExactMarginalLogLikelihood(self.model.likelihood, self.model)
+            self.mll = ExactMarginalLogLikelihood(self.model.likelihood, self.model).cuda()
         
         else:
             train_x, train_y, train_z = self.get_training_data(min(self.train_z.shape[0], 1024), renormalize=True)
@@ -217,7 +219,14 @@ class LOLBOState:
             if not self.initial_model_training_complete:
                 print("initial")
                 self.initialize_surrogate_model()
+                self.model.cpu()
+                self.model.likelihood.cpu()
+                self.mll.cpu()
                 fit_gpytorch_mll(self.mll)
+                self.model.cuda()
+                self.model.likelihood.cuda()
+                self.mll.cuda()
+                
 
             else:
                 print("update")
@@ -250,7 +259,7 @@ class LOLBOState:
         '''Finetune VAE end to end with surrogate model'''
         self.progress_fails_since_last_e2e = 0
 
-        train_x, train_y, train_z = self.get_training_data(k=self.k, recent=self.bsz)
+        train_x, train_y, train_z = self.get_training_data(k=self.k)
         if isinstance(self.model, ExactGP):
             self.initialize_surrogate_model()
             fit_gpytorch_mll(self.mll)
@@ -265,6 +274,7 @@ class LOLBOState:
             self.num_update_epochs,
             )
         else:
+            train_x, train_y, train_z = self.get_training_data(k=self.k, recent=self.bsz)
             self.objective, self.model = update_models_end_to_end(
                 train_x,
                 train_y,

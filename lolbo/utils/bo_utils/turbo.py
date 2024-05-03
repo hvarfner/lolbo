@@ -183,7 +183,7 @@ def generate_batch(
 ):
     assert acqf in ("ts", "ana_ts", "ei", "unmasked_ts")
     assert torch.all(torch.isfinite(Y))
-    if n_candidates is None: n_candidates = min(2048, max(1000, 200 * X.shape[-1]))
+    if n_candidates is None: n_candidates = min(768, max(1000, 200 * X.shape[-1]))
     
     if hasattr(model, "true_dim"):
         tr_dim = model.true_dim
