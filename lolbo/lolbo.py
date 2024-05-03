@@ -261,7 +261,13 @@ class LOLBOState:
         train_x, train_y, train_z = self.get_training_data(k=self.k)
         if isinstance(self.model, ExactGP):
             self.initialize_surrogate_model()
+            self.model.cpu()
+            self.model.likelihood.cpu()
+            self.mll.cpu()
             fit_gpytorch_mll(self.mll)
+            self.model.cuda()
+            self.model.likelihood.cuda()
+            self.mll.cuda()
             self.objective, self.model = update_exact_end_to_end(
             train_x,
             train_y,
