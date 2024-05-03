@@ -217,7 +217,6 @@ class LOLBOState:
         
         if isinstance(self.model, ExactGP):
             if not self.initial_model_training_complete:
-                print("initial")
                 self.initialize_surrogate_model()
                 self.model.cpu()
                 self.model.likelihood.cpu()
