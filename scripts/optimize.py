@@ -209,6 +209,7 @@ class Optimize(object):
         # creates wandb tracker iff self.track_with_wandb == True
         self.create_wandb_tracker()
         #main optimization loop
+        
         while self.lolbo_state.objective.num_calls < self.max_n_oracle_calls:
             self.log_data_to_wandb_on_each_loop()
             # update models end to end when we fail to make
@@ -417,9 +418,11 @@ class Optimize(object):
         res_save_path = f"{save_dir}/result_values/{self.experiment_name}/{self.task_id}/{self.model}"
         str_save_path = f"{save_dir}/result_strings/{self.experiment_name}/{self.task_id}/{self.model}"
         z_save_path = f"{save_dir}/result_z/{self.experiment_name}/{self.task_id}/{self.model}"
+        dups_save_path = f"{save_dir}/duplicates/{self.experiment_name}/{self.task_id}/{self.model}"
         os.makedirs(res_save_path, exist_ok=True)
         os.makedirs(str_save_path, exist_ok=True)
         os.makedirs(z_save_path, exist_ok=True)
+        os.makedirs(dups_save_path, exist_ok=True)
         Y = self.lolbo_state.orig_train_y.flatten()
         df = pd.DataFrame({self.task_id: Y})
         df.to_csv(f"{res_save_path}/{self.task_id}_{self.model}_{self.seed}.csv")
@@ -427,11 +430,12 @@ class Optimize(object):
         best_X = np.array(self.lolbo_state.train_x)[best_indices].tolist()
         best_y = Y[best_indices]
         df_indices = pd.DataFrame({"string": best_X, "{self.task_id}": best_y})
-        
+        df_dups = pd.DataFrame(self.lolbo_state.duplicates)
         df_z = pd.DataFrame(self.lolbo_state.train_z.numpy().astype(np.float16))
+        
         df_z["acqtype"] = self.lolbo_state.z_acqtype
         df_z.to_csv(f"{z_save_path}/{self.task_id}_{self.model}_{self.seed}_z.csv")
-
+        df_dups.to_csv(f"{dups_save_path}/{self.task_id}_{self.model}_{self.seed}_dups.csv")
         df_indices.to_csv(f"{str_save_path}/{self.task_id}_{self.model}_{self.seed}_strings.csv")
 
 

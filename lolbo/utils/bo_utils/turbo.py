@@ -183,9 +183,11 @@ def generate_batch(
 ):
     assert acqf in ("ts", "ana_ts", "ei")
     assert torch.all(torch.isfinite(Y))
-    if n_candidates is None: n_candidates = min(5000, max(1000, 200 * X.shape[-1]))
+    if n_candidates is None: n_candidates = min(64, max(1000, 200 * X.shape[-1]))
+    
     if hasattr(model, "true_dim"):
         tr_dim = model.true_dim
+    
     else:
         tr_dim = X.shape[-1]
     x_center = X[Y.argmax(), :tr_dim].clone()  
@@ -200,12 +202,12 @@ def generate_batch(
             ls = model.covar_module.lengthscale[..., :tr_dim]
         tr_lb = x_center.to(ls) - ls / ls_tr_ratio # The default size of the 
         tr_ub = x_center.to(ls) + ls / ls_tr_ratio # The default size of the  
-
+    
     if acqf == "ei":
         ei = qLogExpectedImprovement(model.cuda(), Y.max().cuda() ) 
         X_next, _ = optimize_acqf(ei,bounds=torch.stack([tr_lb, tr_ub]).squeeze(1).cuda(),q=batch_size, num_restarts=num_restarts,raw_samples=raw_samples,)
 
-    elif acqf == "ts":
+    elif (acqf == "ts") or (acqf == "unmasked_ts"):
         tr_lb = tr_lb.cuda()
         tr_ub = tr_ub.cuda() 
         sobol = SobolEngine(tr_dim, scramble=True) 
@@ -213,18 +215,21 @@ def generate_batch(
         pert = tr_lb + (tr_ub - tr_lb) * pert
         tr_lb = tr_lb.cuda()
         tr_ub = tr_ub.cuda() 
-        # Create a perturbation mask 
-        prob_perturb = min(20.0 / tr_dim, 1.0)
-        mask = (torch.rand(n_candidates, tr_dim, dtype=dtype, device=device)<= prob_perturb)
-        ind = torch.where(mask.sum(dim=1) == 0)[0]
-        mask[ind, torch.randint(0, tr_dim - 1, size=(len(ind),), device=device)] = 1
-        mask = mask.cuda()
 
-        # Create candidate points from the perturbations and the mask
-        X_cand = x_center.expand(n_candidates, tr_dim).clone()
-        X_cand = X_cand.cuda()
-        X_cand[mask] = pert[mask]
+        if acqf == "unmasked_ts":
+            X_cand = pert
+        else:
+            # Create a perturbation mask 
+            prob_perturb = min(20.0 / tr_dim, 1.0)
+            mask = (torch.rand(n_candidates, tr_dim, dtype=dtype, device=device)<= prob_perturb)
+            ind = torch.where(mask.sum(dim=1) == 0)[0]
+            mask[ind, torch.randint(0, tr_dim - 1, size=(len(ind),), device=device)] = 1
+            mask = mask.cuda()
 
+            # Create candidate points from the perturbations and the mask
+            X_cand = x_center.expand(n_candidates, tr_dim).clone()
+            X_cand = X_cand.cuda()
+            X_cand[mask] = pert[mask]
         # Sample on the candidate points 
         thompson_sampling = MaxPosteriorSampling(model=model, replacement=False ) 
         X_next = thompson_sampling(X_cand.cuda(), num_samples=batch_size )

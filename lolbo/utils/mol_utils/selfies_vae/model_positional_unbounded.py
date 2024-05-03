@@ -245,8 +245,8 @@ class InfoTransformerVAE(pl.LightningModule):
         # see https://ojs.aaai.org//index.php/AAAI/article/view/4538 Eq. 6
         # Equation from the original "Auto-Encoding Variational Bayes" paper: https://arxiv.org/pdf/1312.6114.pdf
         sigma2 = sigma.pow(2)
-        kldiv = 0.5 * (mu.pow(2) + sigma2 - sigma2.log() - 1).mean()  # .sum(dim=(1, 2)).mean(0)
-
+        kldiv = 0.5 * (mu.pow(2) + sigma2 - sigma2.log() - 1).mean() # .sum(dim=(1, 2)).mean(0)
+        #                                                     batch dim      latent dims
         primary_loss = recon_loss
         if self.kl_factor != 0:
             primary_loss = primary_loss + self.kl_factor * kldiv

@@ -25,10 +25,8 @@ class ZRBFKernel(RBFKernel):
             **params
     ):
         dim = self.lengthscale.shape[-1] // 2
-        if x1.shape[-1] == dim:
-            breakpoint()
+
         # when the inputs are of different sizes, what happens? (160 x 512 / 16 x 512)
-        
         A = (self.lengthscale[..., :dim] ** 2 + 
              x1[..., dim:].unsqueeze(-2) + x2[..., dim:].unsqueeze(-3)
         ).rsqrt() * self.lengthscale[..., :dim]

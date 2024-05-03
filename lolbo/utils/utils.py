@@ -9,7 +9,7 @@ from lolbo.latent_space_objective import LatentSpaceObjective
 import gpytorch
 from gpytorch.models import ApproximateGP, ExactGP
 from botorch.sampling.qmc import NormalQMCEngine
-
+from botorch.fit import fit_gpytorch_mll
 
 def update_models_end_to_end(
     train_x,
@@ -120,6 +120,7 @@ def update_exact_end_to_end(
     objective.vae.train()
     #breakpoint()
     model.train() 
+    print("Training end to end")
 
     optimizer = torch.optim.Adam([
             {'params': objective.vae.parameters(), 'lr': vae_learning_rte},
@@ -130,7 +131,7 @@ def update_exact_end_to_end(
     for idx in range(num_update_epochs):
         optimizer.zero_grad()
         # need to pass through VAE here to get the recon losses
-        z_mu, z_sigma, batch_losses = _get_predictions(None, train_x, obj=objective, gp=model, return_loss=True)
+        z_mu, z_sigma, batch_losses = _get_predictions(None, train_x, obj=objective, return_loss=True)
         z = torch.cat((z_mu, z_sigma), dim=-1) 
         model.set_train_data(inputs=z, targets=y.to(z), strict=(idx>0))
 
@@ -144,7 +145,7 @@ def update_exact_end_to_end(
         optimizer.step()
         
 
-    z_mu, z_sigma, batch_losses = _get_predictions(None, train_x, obj=objective, gp=model, return_loss=True)
+    z_mu, z_sigma, batch_losses = _get_predictions(None, train_x, obj=objective, return_loss=True)
     z = torch.cat((z_mu, z_sigma), dim=-1) 
     
     model.set_train_data(inputs=z, targets=y.to(z))
@@ -167,7 +168,6 @@ def update_exact_surr_model(
     This method is build to be compatible with the 
     SELFIES VAE interface
     '''
-    #z_mu, z_sigma = _get_predictions(None, train_x, obj=objective, gp=model)
     model.train() 
     optimizer = torch.optim.Adam([
         {'params': model.parameters(), 'lr': gp_learning_rte}
@@ -205,7 +205,7 @@ def update_surr_model_sampled_z(
     This method is build to be compatible with the 
     SELFIES VAE interface
     '''
-    z_mu, z_sigma = _get_predictions(None, train_x, obj=objective, gp=model)
+    z_mu, z_sigma = _get_predictions(None, train_x, obj=objective)
     model.train() 
     optimizer = torch.optim.Adam([
         {'params': model.parameters(), 'lr': gp_learning_rte}
@@ -250,9 +250,8 @@ def update_surr_model_sampled_z(
 
 
 @batchable
-def _get_predictions(_: Any, X: list, gp: ApproximateGP, obj: LatentSpaceObjective, return_loss: bool = False):
+def _get_predictions(_: Any, X: list, obj: LatentSpaceObjective, return_loss: bool = False):
     obj.vae.eval()
-    gp.eval()
     z, loss, z_mu, z_sigma = obj.vae_forward(X, return_mu_sigma=True)
     if return_loss:
         return z_mu, z_sigma, loss.unsqueeze(0)

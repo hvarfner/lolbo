@@ -7,6 +7,8 @@ from gpytorch.mlls import (
     PredictiveLogLikelihood, 
     ExactMarginalLogLikelihood
 )
+from botorch.fit import fit_gpytorch_mll
+            
 from lolbo.utils.bo_utils.turbo import TurboState, update_state, generate_batch
 from lolbo.utils.utils import (
     update_models_end_to_end,
@@ -14,6 +16,7 @@ from lolbo.utils.utils import (
     update_surr_model_sampled_z,
     update_exact_surr_model,
     update_exact_end_to_end,
+    _get_predictions,
 )
 from lolbo.utils.bo_utils.ppgpr import GPModelDKL, ExactGPModel, ExactHenryModel, Z_to_X
 from lolbo.utils.bo_utils.registry import get_model
@@ -63,15 +66,17 @@ class LOLBOState:
         self.sample_z_e2e       = sample_z_e2e
         self.z_acqtype = ["i"] * len(self.orig_train_y)
         assert acq_func in ["ei", "ts", "logei", "ana_ts"]
-        
+        self.duplicates = []
         self.progress_fails_since_last_e2e = 0
         self.tot_num_e2e_updates = 0
         self.best_score_seen = torch.max(self.orig_train_y)
         self.best_x_seen = train_x[torch.argmax(self.orig_train_y)]
         self.initial_model_training_complete = False # initial training of surrogate model uses all data for more epochs
         self.new_best_found = False
-
+            
         self.initialize_surrogate_model()
+        if isinstance(self.model, ExactGP):
+            self.update_surrogate_model()
         self.initialize_tr_state()
         self.initialize_xs_to_scores_dict()
 
@@ -93,7 +98,17 @@ class LOLBOState:
         return self
 
     def initialize_surrogate_model(self ):
-        if issubclass(self.model_class, ExactGP):
+        if self.model_class is ExactHenryModel:
+            train_x, train_y, train_z = self.get_training_data(k=-1, renormalize=True)
+            z_mu, z_sigma, batch_losses  = _get_predictions(None, train_x, obj=self.objective, return_loss=True)
+            z_cat = torch.cat((z_mu, z_sigma), dim=-1) 
+            self.model = self.model_class(
+                z_cat, 
+                train_y.cuda(), 
+            ).cuda()
+            self.mll = ExactMarginalLogLikelihood(self.model.likelihood, self.model)
+        
+        elif issubclass(self.model_class, ExactGP):
             train_x, train_y, train_z = self.get_training_data(self.k, renormalize=True)
             self.model = self.model_class(
                 train_z.cuda(), 
@@ -166,6 +181,8 @@ class LOLBOState:
     def get_training_data(self, k: int, recent: int = 0, renormalize: bool = False):
         ''' get top k x, y, and zs'''
         # track top k scores found
+        if k == -1:
+            k = len(self.train_x)
         top_k_scores, top_k_idxs = torch.topk(self.orig_train_y.squeeze(), min(k, len(self.orig_train_y)))
         top_k_xs = [self.train_x[i] for i in top_k_idxs]
         top_k_zs = self.train_z[top_k_idxs]
@@ -193,40 +210,29 @@ class LOLBOState:
         if not self.initial_model_training_complete:
             # first time training surr model --> train on all data
             n_epochs = self.init_n_epochs
-            if isinstance(self.model, ExactGP):
-                train_x, train_y, train_z = self.get_training_data(k=self.k, recent=0)
-            else:
-                train_x, train_y, train_z = self.get_training_data(k=len(self.orig_train_y), recent=0)
-
         else:
             n_epochs = self.num_update_epochs
-            if isinstance(self.model, ExactGP):
-                train_x, train_y, train_z = self.get_training_data(k=self.k, recent=self.bsz)
-            else:
-                train_x, train_y, train_z = self.get_training_data(k=0, recent=self.bsz)
         
-        if self.z_as_dist:
-            if isinstance(self.model, ExactHenryModel):
-                self.model = update_exact_surr_model(
-                    train_z,
-                    train_y,
-                    self.objective,
-                    self.model,
-                    self.mll,
-                    self.gp_learning_rte,
-                    n_epochs
-                )
+        if isinstance(self.model, ExactGP):
+            if not self.initial_model_training_complete:
+                print("initial")
+                self.initialize_surrogate_model()
+                fit_gpytorch_mll(self.mll)
+
             else:
-                self.model = update_surr_model_sampled_z(
-                    train_x,
-                    train_y,
+                print("update")
+                update_exact_surr_model(
+                    self.model.train_inputs[0],
+                    self.model.train_targets,
                     self.objective,
                     self.model,
                     self.mll,
                     self.gp_learning_rte,
-                    n_epochs
+                    n_epochs,
                 )
         else:
+            train_x, train_y, train_z = self.get_training_data(k=0, recent=self.bsz, renormalize=True)
+            
             self.model = update_surr_model(
                 self.model,
                 self.mll,
@@ -246,6 +252,8 @@ class LOLBOState:
 
         train_x, train_y, train_z = self.get_training_data(k=self.k, recent=self.bsz)
         if isinstance(self.model, ExactGP):
+            self.initialize_surrogate_model()
+            fit_gpytorch_mll(self.mll)
             self.objective, self.model = update_exact_end_to_end(
             train_x,
             train_y,
@@ -278,6 +286,9 @@ class LOLBOState:
             VAE to find new locations in the
             new fine-tuned latent space
         '''
+        if isinstance(self.model, ExactHenryModel):
+            return self
+        
         self.objective.vae.eval()
         self.model.train()
         optimizer1 = torch.optim.Adam([{'params': self.model.parameters(),'lr': self.gp_learning_rte} ])
@@ -356,8 +367,9 @@ class LOLBOState:
                 duplicates=duplicates,
                 acquisition=True
             )
-            print(y_next, duplicates)
         else:
             self.progress_fails_since_last_e2e += 1
             if self.verbose:
                 print("GOT NO VALID Y_NEXT TO UPDATE DATA, RERUNNING ACQUISITOIN...")
+
+        self.duplicates.append(duplicates.tolist())
