@@ -185,6 +185,9 @@ class LOLBOState:
         # track top k scores found
         if k == -1:
             k = len(self.train_x)
+        elif isinstance(k, float):
+            breakpoint()
+            k = math.ceil(len(self.orig_train_y) * k)
         top_k_scores, top_k_idxs = torch.topk(self.orig_train_y.squeeze(), min(k, len(self.orig_train_y)))
         top_k_xs = [self.train_x[i] for i in top_k_idxs]
         top_k_zs = self.train_z[top_k_idxs]
@@ -228,7 +231,6 @@ class LOLBOState:
                 
 
             else:
-                print("update")
                 update_exact_surr_model(
                     self.model.train_inputs[0],
                     self.model.train_targets,
@@ -257,7 +259,7 @@ class LOLBOState:
     def update_models_e2e(self):
         '''Finetune VAE end to end with surrogate model'''
         self.progress_fails_since_last_e2e = 0
-
+        
         train_x, train_y, train_z = self.get_training_data(k=self.k)
         if isinstance(self.model, ExactGP):
             self.initialize_surrogate_model()
@@ -337,7 +339,6 @@ class LOLBOState:
                     valid_zs = valid_zs.detach().cpu()
                     if hasattr(self.model, "true_dim"):
                         valid_zs = Z_to_X(valid_zs)
-                    print("recenter duplicates", duplicates)
                     self.update_next(valid_zs, scores_arr, selfies_list, duplicates=duplicates)
         torch.cuda.empty_cache()
         self.model.eval() 
