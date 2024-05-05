@@ -23,9 +23,10 @@ class MoleculeOptimization(Optimize):
     ):
         self.path_to_vae_statedict = path_to_vae_statedict
         self.max_string_length = max_string_length
-
+        self.init_smiles_to_selfies = {}
+        self.init_train_x =  []
         super().__init__(**kwargs)
-
+        
         # add args to method args dict to be logged by wandb
         self.method_args['molopt'] = locals()
         del self.method_args['molopt']['self']
@@ -38,14 +39,15 @@ class MoleculeOptimization(Optimize):
             max_string_length=self.max_string_length,
             smiles_to_selfies=self.init_smiles_to_selfies
         )
+        if len(self.init_train_x) > 0:
         # if train zs have not been pre-computed for particular vae, compute them 
         #   by passing initialization selfies through vae 
-        self.init_train_z = compute_train_zs(
-            self.objective,
-            self.init_train_x,
-            z_as_dist=self.z_as_dist,
-            train_on_z_mean=self.train_on_z_mean,
-        )
+            self.init_train_z = compute_train_zs(
+                self.objective,
+                self.init_train_x,
+                z_as_dist=self.z_as_dist,
+                train_on_z_mean=self.train_on_z_mean,
+            )
 
         return self
 
@@ -70,7 +72,7 @@ class MoleculeOptimization(Optimize):
             print(f"train x list length: {len(self.init_train_x)}\n")
 
         # create initial smiles to selfies dict
-        self.init_smiles_to_selfies = {}
+        
         for ix, smile in enumerate(self.init_train_x):
             self.init_smiles_to_selfies[smile] = selfies[ix]
 

@@ -72,6 +72,7 @@ class Optimize(object):
         train_on_z_mean: bool = False,
         sample_z_e2e: bool = True,
         sample_scale: float = 1.0,
+        load_init: bool = False,
     ):
         # add all local args to method args dict to be logged by wandb
         self.method_args = {}
@@ -103,9 +104,14 @@ class Optimize(object):
         
         # initialize train data for particular task
         #   must define self.init_train_x, self.init_train_y, and self.init_train_z
-        self.load_train_data()
+
         # initialize latent space objective (self.objective) for particular task
         self.initialize_objective()
+        if load_init:
+            self.load_train_data()
+        else:
+            self.sample_train_data()
+        # initialize lolbo state
         assert isinstance(self.objective, LatentSpaceObjective), "self.objective must be an instance of LatentSpaceObjective"
         assert type(self.init_train_x) is list, "load_train_data() must set self.init_train_x to a list of xs"
         assert torch.is_tensor(self.init_train_y), "load_train_data() must set self.init_train_y to a tensor of ys"
@@ -113,8 +119,8 @@ class Optimize(object):
         assert len(self.init_train_x) == self.num_initialization_points, f"load_train_data() must initialize exactly self.num_initialization_points={self.num_initialization_points} xs, instead got {len(self.init_train_x)} xs"
         assert self.init_train_y.shape[0] == self.num_initialization_points, f"load_train_data() must initialize exactly self.num_initialization_points={self.num_initialization_points} ys, instead got {self.init_train_y.shape[0]} ys"
         assert self.init_train_z.shape[0] == self.num_initialization_points, f"load_train_data() must initialize exactly self.num_initialization_points={self.num_initialization_points} zs, instead got {self.init_train_z.shape[0]} zs"
-
-        # initialize lolbo state
+        breakpoint()
+        
         self.lolbo_state = LOLBOState(
             objective=self.objective,
             train_x=self.init_train_x,
@@ -153,6 +159,19 @@ class Optimize(object):
         '''
         return self
 
+    def sample_train_data(self):
+        self.init_train_z = torch.randn(torch.Size([self.num_initialization_points, self.objective.dim]))
+        batch_size = 8
+        num_batches = np.ceil(self.num_initialization_points / batch_size).astype(int)
+        train_y = np.array([])
+        for idx in range(num_batches):
+            lb, ub = (batch_size * idx), (batch_size * (idx + 1))
+            Z = self.init_train_z[lb:ub].cuda()
+            out_dict = self.objective(Z)
+            train_y = np.append(train_y, out_dict['scores']) 
+            self.init_train_x = self.init_train_x + out_dict['decoded_xs'].tolist()
+
+        self.init_train_y = torch.Tensor(train_y)
 
     def set_seed(self):
         # The flag below controls whether to allow TF32 on matmul. This flag defaults to False
