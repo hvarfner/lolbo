@@ -119,7 +119,6 @@ class Optimize(object):
         assert len(self.init_train_x) == self.num_initialization_points, f"load_train_data() must initialize exactly self.num_initialization_points={self.num_initialization_points} xs, instead got {len(self.init_train_x)} xs"
         assert self.init_train_y.shape[0] == self.num_initialization_points, f"load_train_data() must initialize exactly self.num_initialization_points={self.num_initialization_points} ys, instead got {self.init_train_y.shape[0]} ys"
         assert self.init_train_z.shape[0] == self.num_initialization_points, f"load_train_data() must initialize exactly self.num_initialization_points={self.num_initialization_points} zs, instead got {self.init_train_z.shape[0]} zs"
-        breakpoint()
         
         self.lolbo_state = LOLBOState(
             objective=self.objective,
@@ -160,18 +159,27 @@ class Optimize(object):
         return self
 
     def sample_train_data(self):
-        self.init_train_z = torch.randn(torch.Size([self.num_initialization_points, self.objective.dim]))
+        self.init_train_z = torch.randn(torch.Size([10 * self.num_initialization_points, self.objective.dim]))
         batch_size = 8
         num_batches = np.ceil(self.num_initialization_points / batch_size).astype(int)
         train_y = np.array([])
-        for idx in range(num_batches):
+        train_z = torch.zeros((0, self.objective.dim))
+        train_x = []
+        valid_z = []
+        idx = 0
+        while len(train_y) < self.num_initialization_points:
             lb, ub = (batch_size * idx), (batch_size * (idx + 1))
             Z = self.init_train_z[lb:ub].cuda()
             out_dict = self.objective(Z)
+            valid = out_dict['scores']
             train_y = np.append(train_y, out_dict['scores']) 
-            self.init_train_x = self.init_train_x + out_dict['decoded_xs'].tolist()
+            train_x = train_x + out_dict['decoded_xs'].tolist()
+            train_z = torch.cat((train_z, out_dict['valid_zs'].cpu()))
+            idx += 1
 
-        self.init_train_y = torch.Tensor(train_y)
+        self.init_train_z = train_z[:self.num_initialization_points]    
+        self.init_train_y = torch.Tensor(train_y)[:self.num_initialization_points]
+        self.init_train_x = train_x[:self.num_initialization_points]
 
     def set_seed(self):
         # The flag below controls whether to allow TF32 on matmul. This flag defaults to False
