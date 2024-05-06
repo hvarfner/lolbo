@@ -73,7 +73,7 @@ class LOLBOState:
         self.best_x_seen = train_x[torch.argmax(self.orig_train_y)]
         self.initial_model_training_complete = False # initial training of surrogate model uses all data for more epochs
         self.new_best_found = False
-            
+        
         self.initialize_surrogate_model()
         if isinstance(self.model, ExactGP):
             self.update_surrogate_model()
@@ -135,7 +135,6 @@ class LOLBOState:
             and update progress (top k scores found so far)
             and update trust region state
         '''
-
         z_next_ = z_next_.detach().cpu()[~duplicates] 
         y_next_ = y_next_.detach().cpu()[~duplicates]
         x_next_ = np.array(x_next_)[~duplicates]
@@ -162,14 +161,16 @@ class LOLBOState:
             self.tr_state = update_state(state=self.tr_state, Y_next=torch.Tensor([-100000]))
         else:
             self.tr_state = update_state(state=self.tr_state, Y_next=y_next_)
+        
         self.train_z = torch.cat((self.train_z, z_next_), dim=-2)
         for z_idx in range(len(z_next_)):
             if acquisition:
                 self.z_acqtype.append("a")
             else:
                 self.z_acqtype.append("r")
-
+        
         self.orig_train_y = torch.cat((self.orig_train_y, y_next_), dim=-2)
+
         return self
 
     def standardize_current_train(self, y: torch.Tensor, renormalize: bool = False):
@@ -186,7 +187,6 @@ class LOLBOState:
         if k == -1:
             k = len(self.train_x)
         elif isinstance(k, float):
-            breakpoint()
             k = math.ceil(len(self.orig_train_y) * k)
         top_k_scores, top_k_idxs = torch.topk(self.orig_train_y.squeeze(), min(k, len(self.orig_train_y)))
         top_k_xs = [self.train_x[i] for i in top_k_idxs]
@@ -337,8 +337,8 @@ class LOLBOState:
                 #optimizer1.step() 
                 with torch.no_grad(): 
                     valid_zs = valid_zs.detach().cpu()
-                    if hasattr(self.model, "true_dim"):
-                        valid_zs = Z_to_X(valid_zs)
+                    #if hasattr(self.model, "true_dim"):
+                    #    valid_zs = Z_to_X(valid_zs)
                     self.update_next(valid_zs, scores_arr, selfies_list, duplicates=duplicates)
         torch.cuda.empty_cache()
         self.model.eval() 
@@ -372,8 +372,8 @@ class LOLBOState:
                 y_next = y_next * -1
         # 3. Add new evaluated points to dataset (update_next)
         
-        if hasattr(self.model, "true_dim"):
-            z_next = Z_to_X(z_next)
+        #if hasattr(self.model, "true_dim"):
+        #    z_next = Z_to_X(z_next)
         if len(y_next) != 0:
             y_next = torch.from_numpy(y_next).float()
             self.update_next(

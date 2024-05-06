@@ -162,7 +162,7 @@ class Optimize(object):
         self.init_train_z = torch.randn(torch.Size([10 * self.num_initialization_points, self.objective.dim]))
         batch_size = 8
         num_batches = np.ceil(self.num_initialization_points / batch_size).astype(int)
-        train_y = np.array([])
+        train_y = np.zeros((0, 1))
         train_z = torch.zeros((0, self.objective.dim))
         train_x = []
         valid_z = []
@@ -172,7 +172,7 @@ class Optimize(object):
             Z = self.init_train_z[lb:ub].cuda()
             out_dict = self.objective(Z)
             valid = out_dict['scores']
-            train_y = np.append(train_y, out_dict['scores']) 
+            train_y = np.append(train_y, out_dict['scores'][:, None], axis=0) 
             train_x = train_x + out_dict['decoded_xs'].tolist()
             train_z = torch.cat((train_z, out_dict['valid_zs'].cpu()))
             idx += 1
