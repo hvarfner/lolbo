@@ -251,8 +251,8 @@ class InfoTransformerVAE(pl.LightningModule):
         if self.kl_factor != 0:
             primary_loss = primary_loss + self.kl_factor * kldiv
         loss = primary_loss
-        print("Sample", (logits.argmax(dim=-1) == tokens).float().mean().item(), (logits.argmax(dim=-1) == tokens).all(dim=1).float().mean(dim=0).item()    )
-        print("Mean", (mu_logits.argmax(dim=-1) == tokens).float().mean().item(), (mu_logits.argmax(dim=-1) == tokens).all(dim=1).float().mean(dim=0).item()    )
+        #print("Sample", (logits.argmax(dim=-1) == tokens).float().mean().item(), (logits.argmax(dim=-1) == tokens).all(dim=1).float().mean(dim=0).item()    )
+        #print("Mean", (mu_logits.argmax(dim=-1) == tokens).float().mean().item(), (mu_logits.argmax(dim=-1) == tokens).all(dim=1).float().mean(dim=0).item()    )
 
         return_dict = dict(
             loss=loss, z=z,

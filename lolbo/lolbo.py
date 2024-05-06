@@ -38,7 +38,7 @@ class LOLBOState:
         init_n_epochs,
         vae_learning_rate,
         gp_learning_rate,
-        bsz=10,
+        bsz=8,
         acq_func='ts',
         model_class='dkl',
         verbose=True,

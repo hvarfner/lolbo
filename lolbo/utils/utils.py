@@ -81,6 +81,7 @@ def update_henry_surr_model(
     params = [{'params': model.parameters(), 'lr': gp_learning_rte}]
     if train_e2e:
         params = params + [{'params': objective.vae.parameters(), 'lr': vae_learning_rte}]
+
     optimizer = torch.optim.Adam(params=params)
     # need to pass through VAE here to get the recon losses
     num_batches = math.ceil(len(train_x) / batch_size)
@@ -107,7 +108,8 @@ def update_henry_surr_model(
             pred = model(z)
             loss = -mll(pred, batch_y.cuda().squeeze(-1))
             if train_e2e:
-                loss = loss + batch_losses.sum()
+                loss = loss + batch_losses.mean()
+                print(batch_losses.mean())
             loss.backward()
             optimizer.step()
     

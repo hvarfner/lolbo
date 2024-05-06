@@ -174,9 +174,9 @@ def generate_batch(
     Y,  # Function values
     batch_size,
     n_candidates=None,  # Number of candidates for Thompson sampling 
-    num_restarts=1,
-    raw_samples=256,
-    ls_tr_ratio=16,
+    num_restarts=4,
+    raw_samples=512,
+    ls_tr_ratio=8,
     acqf="ts",  # "ei" or "ts"
     dtype=torch.float32,
     device=torch.device('cuda'),
@@ -249,5 +249,10 @@ def generate_batch(
         X_cand, f_val = get_optimal_samples(model=model, bounds=bounds, num_optima=batch_size, raw_samples=4096, num_restarts=10)
     #if hasattr(model, "true_dim"):
     #    X_next = Z_to_X(X_next)
-
+        
+    sobol = SobolEngine(tr_dim, scramble=True) 
+    pert = sobol.draw(1000).to(dtype=dtype).cuda()
+    pred = model.posterior(X_next)
+    
+    print("Best:", Y.max(), "Mean:", pred.mean, "Std:", pred.variance.sqrt())
     return X_next
