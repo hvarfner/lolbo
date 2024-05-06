@@ -159,7 +159,8 @@ class Optimize(object):
         return self
 
     def sample_train_data(self):
-        self.init_train_z = torch.randn(torch.Size([10 * self.num_initialization_points, self.objective.dim]))
+        self.init_train_z = torch.randn(torch.Size([10 * self.num_initialization_points, self.objective.dim])) * self.sample_scale
+        breakpoint()
         batch_size = 8
         num_batches = np.ceil(self.num_initialization_points / batch_size).astype(int)
         train_y = np.zeros((0, 1))
