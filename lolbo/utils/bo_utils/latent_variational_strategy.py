@@ -32,9 +32,12 @@ from gpytorch.variational import _VariationalDistribution
 from gpytorch.variational.unwhitened_variational_strategy import (
     UnwhitenedVariationalStrategy
 )
+from gpytorch.variational.variational_strategy import (
+    VariationalStrategy
+)
 from gpytorch.variational.variational_strategy import _ensure_updated_strategy_flag_set
 
-class LatentVariationalStrategy(UnwhitenedVariationalStrategy):
+class LatentVariationalStrategy(VariationalStrategy):
 
         # self._raw_inducing_points <- the actual inducing points
         # self.inducing points = 2D
@@ -60,7 +63,6 @@ class LatentVariationalStrategy(UnwhitenedVariationalStrategy):
         self.register_buffer("updated_strategy", torch.tensor(True))
         self._register_load_state_dict_pre_hook(_ensure_updated_strategy_flag_set)
         self.has_fantasy_strategy = True
-
         # Variational distribution
         self._variational_distribution = variational_distribution
         self.register_buffer("variational_params_initialized", torch.tensor(0))
@@ -70,9 +72,12 @@ class LatentVariationalStrategy(UnwhitenedVariationalStrategy):
         else:
             self.register_buffer("_inducing_points", inducing_points)
         self.register_buffer("_fill", torch.zeros_like(inducing_points))
-        print("CHECK THE SHAPE OF THE CH STRAT _FILL AND _IND")
-        breakpoint()
-
+ 
+    
+    # our inducing points are strictly located in latent space (thus 256D and not 512)
     @property
     def inducing_points(self):
         return torch.cat((self._inducing_points, self._fill), dim=-1)
+    
+    def __call__(self, X: Tensor, prior, **kwargs):
+        return super().__call__(X, prior, **kwargs)

@@ -1,6 +1,7 @@
 from typing import Any
 import torch
 import math
+import numpy as np
 import selfies as sf
 from torch.utils.data import TensorDataset, DataLoader
 from lolbo.utils.pred_utils import batchable
@@ -63,6 +64,58 @@ def update_models_end_to_end(
 
     return objective, model
 
+def update_henry_surr_model(
+    train_x,
+    train_y,
+    objective,
+    model,
+    mll,
+    vae_learning_rte,
+    gp_learning_rte,
+    n_epochs: int = 20,
+    batch_size: int = 256,
+    train_e2e: bool = False,
+):
+    model.train()
+    objective.vae.train()
+    params = [{'params': model.parameters(), 'lr': gp_learning_rte}]
+    if train_e2e:
+        params = params + [{'params': objective.vae.parameters(), 'lr': vae_learning_rte}]
+    optimizer = torch.optim.Adam(params=params)
+    # need to pass through VAE here to get the recon losses
+    num_batches = math.ceil(len(train_x) / batch_size)
+    shuffled_idcs = np.arange(len(train_x)).astype(int)
+
+    if not train_e2e:
+        z_mu, z_sigma, batch_losses = _get_predictions(None, train_x, obj=objective, return_loss=True)
+        z_all = torch.cat((z_mu, z_sigma), dim=-1).detach()
+
+    for ep in range(n_epochs):
+        # inplace for some insane reason
+        np.random.shuffle(shuffled_idcs)
+        for batch_idx in range(num_batches):
+            optimizer.zero_grad()
+            lb, ub = (batch_idx * batch_size), ((batch_idx + 1) * batch_size)
+            indices = shuffled_idcs[lb:ub]
+            batch_x = np.array(train_x)[indices].tolist()
+            batch_y = train_y[indices]
+            if train_e2e:
+                z_mu, z_sigma, batch_losses = _get_predictions(None, batch_x, obj=objective, return_loss=True)
+                z = torch.cat((z_mu, z_sigma), dim=-1) 
+            else:
+                z = z_all[indices]
+            pred = model(z)
+            loss = -mll(pred, batch_y.cuda().squeeze(-1))
+            if train_e2e:
+                loss = loss + batch_losses.sum()
+            loss.backward()
+            optimizer.step()
+    
+    model = model.eval()
+    objective.vae.eval()
+    
+    return model
+
 
 def update_surr_model(
     model,
@@ -99,7 +152,6 @@ def update_surr_model(
             #    means = torch.cat((means, output.mean.flatten().to(means)))
             #    all_scores = torch.cat((all_scores, torch.Tensor(scores).to(all_scores)))
     model = model.eval()
-
     return model
 
 
@@ -134,7 +186,6 @@ def update_exact_end_to_end(
         z_mu, z_sigma, batch_losses = _get_predictions(None, train_x, obj=objective, return_loss=True)
         z = torch.cat((z_mu, z_sigma), dim=-1) 
         model.set_train_data(inputs=z, targets=y.to(z), strict=(idx>0))
-
         pred = model(z)
         surr_loss = -mll(pred, y.to(z))
         # add losses and back prop 

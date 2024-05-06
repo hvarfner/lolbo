@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 plt.rcParams['font.family'] = 'serif'
 
 
-def batchable(function, batch_size: int = 16):
+def batchable(function, batch_size: int = 4):
     
     def decorated(cls: Any, *batch_inputs, **kwargs):
         input_length = len(batch_inputs[0])

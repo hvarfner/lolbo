@@ -174,9 +174,9 @@ def generate_batch(
     Y,  # Function values
     batch_size,
     n_candidates=None,  # Number of candidates for Thompson sampling 
-    num_restarts=4,
-    raw_samples=512,
-    ls_tr_ratio=4,
+    num_restarts=1,
+    raw_samples=256,
+    ls_tr_ratio=16,
     acqf="ts",  # "ei" or "ts"
     dtype=torch.float32,
     device=torch.device('cuda'),
@@ -202,10 +202,20 @@ def generate_batch(
             ls = model.covar_module.lengthscale[..., :tr_dim]
         tr_lb = x_center.to(ls) - ls / ls_tr_ratio # The default size of the 
         tr_ub = x_center.to(ls) + ls / ls_tr_ratio # The default size of the  
-    
+        #if hasattr(model, "true_dim"):
+        #    tr_lb = torch.cat((tr_lb, torch.zeros_like(tr_lb)), dim=-1)
+        #    tr_ub = torch.cat((tr_ub, torch.zeros_like(tr_ub)), dim=-1)
+        
     if acqf == "ei":
-        ei = qLogExpectedImprovement(model.cuda(), Y.max().cuda() ) 
-        X_next, _ = optimize_acqf(ei,bounds=torch.stack([tr_lb, tr_ub]).squeeze(1).cuda(),q=batch_size, num_restarts=num_restarts,raw_samples=raw_samples,)
+        ei = qLogExpectedImprovement(model.cuda(), Y.max().cuda()) 
+        X_next, _ = optimize_acqf(
+            ei,
+            bounds=torch.stack([tr_lb, tr_ub]).squeeze(1).cuda(),
+            q=batch_size, 
+            num_restarts=num_restarts,
+            raw_samples=raw_samples, 
+            options={"batch_limit": 32}
+        )
 
     elif (acqf == "ts") or (acqf == "unmasked_ts"):
         tr_lb = tr_lb.cuda()

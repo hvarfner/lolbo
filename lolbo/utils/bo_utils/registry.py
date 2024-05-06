@@ -3,11 +3,9 @@ from lolbo.utils.bo_utils.ppgpr import (
     GPModel, 
     GPModelDKL, 
     VanillaBOGPModel,
-    VanillaBOZGPModel,
+    LatentHenryModel,
     ZGPModelDKL,
     ZGPModel,
-    UnwhitenedVanillaBOZGPModel,
-    UnwhitenedVanillaBOGPModel,
     ExactGPModel,
     ExactHenryModel,
     DeepGPModelDKL,
@@ -44,17 +42,11 @@ def get_model(gp_name: str) -> GP:
     elif gp_name == "zgp":
         return ZGPModel
 
-    elif gp_name == "zvanilla":
-        return VanillaBOZGPModel
+    elif gp_name == "latent_henry":
+        return LatentHenryModel
     
     elif gp_name == "zdkl":
         return ZGPModelDKL
-    
-    elif gp_name == "unzvanilla":
-        return UnwhitenedVanillaBOZGPModel 
-       
-    elif gp_name == "unvanilla":
-        return UnwhitenedVanillaBOZGPModel
     
     else:
         raise ValueError(f"The GP model {gp_name} does not exist.")

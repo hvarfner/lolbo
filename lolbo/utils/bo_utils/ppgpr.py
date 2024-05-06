@@ -185,7 +185,7 @@ class ExactHenryModel(BatchedMultiOutputGPyTorchModel, ExactGP):
         self.mean_module = gpytorch.means.ConstantMean(batch_shape=self._aug_batch_shape)
         dim = train_inputs.shape[-1]
         self.true_dim = dim // 2
-        scaled_loc = (loc + math.log(dim // 2) / 2)
+        scaled_loc = (loc + math.log(self.true_dim) / 2)
         self.covar_module = ZRBFKernel(
                 ard_num_dims=dim, 
                 lengthscale_prior=LogNormalPrior(loc=scaled_loc, scale=scale),
@@ -195,17 +195,20 @@ class ExactHenryModel(BatchedMultiOutputGPyTorchModel, ExactGP):
         
     def transform_inputs(self, X: Tensor, input_transform: Module | None = None) -> Tensor:
         X = check_if_z(X, self.true_dim)
+        breakpoint()
         return super().transform_inputs(X, input_transform)
     
     def forward(self, x, **kwargs):
+        
+        print(x.shape, self.mean_module.constant)
         mean_x = self.mean_module(x)
         covar_x = self.covar_module(x, **kwargs)
         return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
     
 
 
-class VanillaBOZGPModel(ApproximateGP):
-    def __init__(self, inducing_points, likelihood, loc: float = 2 ** 0.5, scale: float = 2):
+class LatentHenryModel(BatchedMultiOutputGPyTorchModel, ApproximateGP):
+    def __init__(self, inducing_points, likelihood, loc: float = 1, scale: float = 2):
         variational_distribution = CholeskyVariationalDistribution(inducing_points.size(0) )
         variational_strategy = LatentVariationalStrategy(
             self,
@@ -213,115 +216,38 @@ class VanillaBOZGPModel(ApproximateGP):
             variational_distribution,
             learn_inducing_locations=True
             )
-        dim = inducing_points.shape[1]
-        
-        super(VanillaBOZGPModel, self).__init__(variational_strategy)
+        super(LatentHenryModel, self).__init__(variational_strategy)
+
+        dim = variational_strategy.inducing_points.shape[-1]
+        self.true_dim = dim // 2
+        scaled_loc = (loc + math.log(self.true_dim) / 2)
+
         self.mean_module = gpytorch.means.ConstantMean()
-        scaled_loc = (loc + math.log(dim) / 2) * 2
-        self.covar_module = gpytorch.kernels.ScaleKernel(
-             ZRBFKernel(
+        self.covar_module = gpytorch.kernels.ScaleKernel(ZRBFKernel(
                 ard_num_dims=dim, 
                 lengthscale_prior=LogNormalPrior(loc=scaled_loc, scale=scale)
-            )
-        )
-        self.covar_module.base_kernel.lengthscale = math.sqrt(dim)
-        self.num_outputs = 1
+        ), LogNormalPrior(loc=0, scale=1))
+        self.covar_module.base_kernel.lengthscale = math.sqrt(self.true_dim)
         self.likelihood = likelihood 
+        self._num_outputs = 1
+
+    def transform_inputs(self, X: Tensor, input_transform: Module | None = None) -> Tensor:
+        """For the posterior call only!
+
+        Args:
+            X (Tensor): _description_
+            input_transform (Module | None, optional): _description_. Defaults to None.
+
+        Returns:
+            Tensor: _description_
+        """        
+        X = check_if_z(X, self.true_dim)
+        return super().transform_inputs(X, input_transform)
 
     def forward(self, x, **kwargs):
         mean_x = self.mean_module(x)
         covar_x = self.covar_module(x, **kwargs)
         return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
-
-    def posterior(
-            self, X, output_indices=None, observation_noise=False, *args, **kwargs
-        ) -> GPyTorchPosterior:
-            self.eval()  # make sure model is in eval mode
-            # self.model.eval()
-            self.likelihood.eval()
-            dist = self.likelihood(self(X)) 
-
-            return GPyTorchPosterior(mvn=dist)
-  
-
-class UnwhitenedVanillaBOGPModel(ApproximateGP):
-    def __init__(self, inducing_points, likelihood, loc: float = 2 ** 0.5, scale: float = 2):
-        variational_distribution = CholeskyVariationalDistribution(inducing_points.size(0) )
-        variational_strategy = UnwhitenedVariationalStrategy(
-            self,
-            inducing_points,
-            variational_distribution,
-            learn_inducing_locations=True
-        )
-        dim = inducing_points.shape[1]
-        
-        super(UnwhitenedVanillaBOGPModel, self).__init__(variational_strategy)
-        self.mean_module = gpytorch.means.ConstantMean()
-        scaled_loc = (loc + math.log(dim) / 2) * 2
-        self.covar_module = gpytorch.kernels.ScaleKernel(
-             gpytorch.kernels.RBFKernel(
-                ard_num_dims=dim, 
-                lengthscale_prior=LogNormalPrior(loc=scaled_loc, scale=scale)
-            )
-        )
-        self.covar_module.base_kernel.lengthscale = math.sqrt(dim)
-        self.num_outputs = 1
-        self.likelihood = likelihood 
-
-    def forward(self, x, **kwargs):
-        mean_x = self.mean_module(x)
-        covar_x = self.covar_module(x, **kwargs)
-        return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
-
-    def posterior(
-            self, X, output_indices=None, observation_noise=False, *args, **kwargs
-        ) -> GPyTorchPosterior:
-            self.eval()  # make sure model is in eval mode
-            # self.model.eval()
-            self.likelihood.eval()
-            dist = self.likelihood(self(X)) 
-
-            return GPyTorchPosterior(mvn=dist)
-    
-
-class UnwhitenedVanillaBOZGPModel(ApproximateGP):
-    def __init__(self, inducing_points, likelihood, loc: float = 2 ** 0.5, scale: float = 2):
-        variational_distribution = CholeskyVariationalDistribution(inducing_points.size(0) )
-        variational_strategy = UnwhitenedVariationalStrategy(
-            self,
-            inducing_points,
-            variational_distribution,
-            learn_inducing_locations=True
-        )
-        dim = inducing_points.shape[1]
-        
-        super(UnwhitenedVanillaBOZGPModel, self).__init__(variational_strategy)
-        self.mean_module = gpytorch.means.ConstantMean()
-        scaled_loc = (loc + math.log(dim) / 2) * 2
-        self.covar_module = gpytorch.kernels.ScaleKernel(
-             ZRBFKernel(
-                ard_num_dims=dim, 
-                lengthscale_prior=LogNormalPrior(loc=scaled_loc, scale=scale)
-            )
-        )
-        self.covar_module.base_kernel.lengthscale = math.sqrt(dim)
-        self.num_outputs = 1
-        self.likelihood = likelihood 
-
-    def forward(self, x, **kwargs):
-        mean_x = self.mean_module(x)
-        covar_x = self.covar_module(x, **kwargs)
-        return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
-
-    def posterior(
-            self, X, output_indices=None, observation_noise=False, *args, **kwargs
-        ) -> GPyTorchPosterior:
-            self.eval()  # make sure model is in eval mode
-            # self.model.eval()
-            self.likelihood.eval()
-            dist = self.likelihood(self(X)) 
-
-            return GPyTorchPosterior(mvn=dist)
 
 
 # gp model with deep kernel

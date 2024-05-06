@@ -36,5 +36,7 @@ class ZRBFKernel(RBFKernel):
         # how first element should scale * how second element should scale * per dimension
         z1 = x1[..., :dim] * B1
         z2 = x2[..., :dim] * B2
-        
-        return super().forward(Z_to_X(z1), Z_to_X(z2), diag=diag) * torch.prod(A, dim=-1)
+        A_factor = torch.prod(A, dim=-1)
+        if diag:
+            A_factor = torch.diag(A_factor)
+        return super().forward(Z_to_X(z1), Z_to_X(z2), diag=diag) * A_factor

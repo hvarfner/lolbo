@@ -7,7 +7,7 @@ from gpytorch.mlls import (
     PredictiveLogLikelihood, 
     ExactMarginalLogLikelihood
 )
-from botorch.fit import fit_gpytorch_mll
+from botorch.fit import fit_gpytorch_mll, fit_gpytorch_mll_torch
             
 from lolbo.utils.bo_utils.turbo import TurboState, update_state, generate_batch
 from lolbo.utils.utils import (
@@ -15,10 +15,11 @@ from lolbo.utils.utils import (
     update_surr_model,
     update_surr_model_sampled_z,
     update_exact_surr_model,
+    update_henry_surr_model,
     update_exact_end_to_end,
     _get_predictions,
 )
-from lolbo.utils.bo_utils.ppgpr import GPModelDKL, ExactGPModel, ExactHenryModel, Z_to_X
+from lolbo.utils.bo_utils.ppgpr import GPModelDKL, ExactGPModel, LatentHenryModel, ExactHenryModel, Z_to_X
 from lolbo.utils.bo_utils.registry import get_model
 from botorch.utils.transforms import standardize
 
@@ -103,13 +104,27 @@ class LOLBOState:
             z_mu, z_sigma, batch_losses  = _get_predictions(None, train_x, obj=self.objective, return_loss=True)
             z_cat = torch.cat((z_mu, z_sigma), dim=-1) 
             self.model = self.model_class(
-                z_cat.cuda(), 
-                train_y.cuda(), 
+                z_cat.detach().cuda(), 
+                train_y.detach().cuda(), 
             ).cuda()
             self.model.likelihood.cuda()
         
             self.mll = ExactMarginalLogLikelihood(self.model.likelihood, self.model).cuda()
         
+        elif self.model_class is LatentHenryModel:
+            train_x, train_y, train_z = self.get_training_data(k=-1, renormalize=True)
+            z_mu, z_sigma, batch_losses  = _get_predictions(None, train_x, obj=self.objective, return_loss=True)
+            z_cat = torch.cat((z_mu, z_sigma), dim=-1) 
+            n_pts = min(self.train_z.shape[0], 128)
+            likelihood = gpytorch.likelihoods.GaussianLikelihood()
+
+            self.model = self.model_class(
+                inducing_points=z_mu[:n_pts].detach().cuda(), 
+                likelihood=likelihood,
+            ).cuda()
+            self.model.likelihood.cuda()
+            self.mll = PredictiveLogLikelihood(self.model.likelihood, self.model, num_data=train_z.size(-2)).cuda()
+
         elif issubclass(self.model_class, ExactGP):
             train_x, train_y, train_z = self.get_training_data(self.k, renormalize=True)
             self.model = self.model_class(
@@ -224,7 +239,7 @@ class LOLBOState:
                 self.model.cpu()
                 self.model.likelihood.cpu()
                 self.mll.cpu()
-                fit_gpytorch_mll(self.mll)
+                fit_gpytorch_mll_torch(self.mll)
                 self.model.cuda()
                 self.model.likelihood.cuda()
                 self.mll.cuda()
@@ -240,17 +255,40 @@ class LOLBOState:
                     self.gp_learning_rte,
                     n_epochs,
                 )
+
         else:
-            train_x, train_y, train_z = self.get_training_data(k=0, recent=self.bsz, renormalize=True)
-            
-            self.model = update_surr_model(
-                self.model,
-                self.mll,
-                self.gp_learning_rte,
-                train_z,
-                train_y,
-                n_epochs
-            )
+            if not self.initial_model_training_complete:
+                train_x, train_y, train_z = self.get_training_data(
+                    k=-1, 
+                    renormalize=True,
+                )
+            else:
+                    train_x, train_y, train_z = self.get_training_data(
+                        k=self.k, 
+                        recent=self.bsz,
+                        renormalize=False,
+                )
+                
+            if isinstance(self.model, LatentHenryModel):
+                update_henry_surr_model(
+                    train_x=train_x,
+                    train_y=train_y,
+                    objective=self.objective,
+                    model=self.model,
+                    mll=self.mll,
+                    gp_learning_rte=self.gp_learning_rte,
+                    vae_learning_rte=self.vae_learning_rte,
+                    n_epochs=n_epochs,
+                )
+            else:
+                self.model = update_surr_model(
+                    self.model,
+                    self.mll,
+                    self.gp_learning_rte,
+                    train_z,
+                    train_y,
+                    n_epochs
+                )
 
         self.initial_model_training_complete = True
 
@@ -266,7 +304,8 @@ class LOLBOState:
             self.model.cpu()
             self.model.likelihood.cpu()
             self.mll.cpu()
-            fit_gpytorch_mll(self.mll)
+            fit_gpytorch_mll_torch(self.mll)
+            
             self.model.cuda()
             self.model.likelihood.cuda()
             self.mll.cuda()
@@ -279,6 +318,19 @@ class LOLBOState:
             self.vae_learning_rte,
             self.gp_learning_rte,
             self.num_update_epochs,
+            )
+        elif isinstance(self.model, LatentHenryModel):
+            train_x, train_y, train_z = self.get_training_data(k=self.k, renormalize=False)
+            update_henry_surr_model(
+                train_x=train_x,
+                train_y=train_y,
+                objective=self.objective,
+                model=self.model,
+                mll=self.mll,
+                gp_learning_rte=self.gp_learning_rte,
+                vae_learning_rte=self.vae_learning_rte,
+                n_epochs=self.num_update_epochs,
+                train_e2e=True
             )
         else:
             train_x, train_y, train_z = self.get_training_data(k=self.k, recent=self.bsz)
@@ -303,7 +355,7 @@ class LOLBOState:
             VAE to find new locations in the
             new fine-tuned latent space
         '''
-        if isinstance(self.model, ExactHenryModel):
+        if isinstance(self.model, (ExactHenryModel, LatentHenryModel)):
             return self
         
         self.objective.vae.eval()
@@ -387,5 +439,5 @@ class LOLBOState:
             self.progress_fails_since_last_e2e += 1
             if self.verbose:
                 print("GOT NO VALID Y_NEXT TO UPDATE DATA, RERUNNING ACQUISITOIN...")
-
+        print("y_next:", y_next.max(), self.orig_train_y.max())
         self.duplicates.append(duplicates.tolist())
