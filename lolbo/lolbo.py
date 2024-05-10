@@ -398,21 +398,34 @@ class LOLBOState:
         return self
 
 
-    def acquisition(self):
+    def acquisition(self, save_moments: bool = False):
         '''Generate new candidate points, 
         evaluate them, and update data
         '''
         # 1. Generate a batch of candidates in 
         #   trust region using surrogate model
         _, train_y, train_z = self.get_training_data(k=self.k)
-        z_next = generate_batch(
-            state=self.tr_state,
-            model=self.model,
-            X=train_z,
-            Y=train_y,
-            batch_size=self.bsz, 
-            acqf=self.acq_func,
+        if save_moments:
+            z_next, mean, std = generate_batch(
+                state=self.tr_state,
+                model=self.model,
+                X=train_z,
+                Y=train_y,
+                batch_size=self.bsz, 
+                acqf=self.acq_func,
+                return_mu_std=True
+            )
+        else:
+            z_next = generate_batch(
+                state=self.tr_state,
+                model=self.model,
+                X=train_z,
+                Y=train_y,
+                batch_size=self.bsz, 
+                acqf=self.acq_func,
+                return_mu_std=False
         )
+        
         # 2. Evaluate the batch of candidates by calling oracle
         with torch.no_grad():
             out_dict = self.objective(z_next)
@@ -441,3 +454,6 @@ class LOLBOState:
                 print("GOT NO VALID Y_NEXT TO UPDATE DATA, RERUNNING ACQUISITOIN...")
         print("y_next:", y_next.max(), self.orig_train_y.max())
         self.duplicates.append(duplicates.tolist())
+
+        if save_moments:
+            return mean, std

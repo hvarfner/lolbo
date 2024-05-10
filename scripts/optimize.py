@@ -1,6 +1,8 @@
 import math
 from typing import Any
 import torch
+
+torch.cuda.empty_cache()
 from torch import Tensor
 import random
 import numpy as np
@@ -73,6 +75,7 @@ class Optimize(object):
         sample_z_e2e: bool = True,
         sample_scale: float = 1.0,
         load_init: bool = False,
+        save_moments: bool = False
     ):
         # add all local args to method args dict to be logged by wandb
         self.method_args = {}
@@ -92,6 +95,7 @@ class Optimize(object):
         self.train_on_z_mean = train_on_z_mean
         self.z_as_dist = z_as_dist
         self.sample_scale = sample_scale
+        self.save_moments = save_moments
         self.set_seed()
         if wandb_project_name: # if project name specified
             self.wandb_project_name = wandb_project_name
@@ -160,7 +164,6 @@ class Optimize(object):
 
     def sample_train_data(self):
         self.init_train_z = torch.randn(torch.Size([10 * self.num_initialization_points, self.objective.dim])) * self.sample_scale
-        breakpoint()
         batch_size = 8
         num_batches = np.ceil(self.num_initialization_points / batch_size).astype(int)
         train_y = np.zeros((0, 1))
@@ -250,7 +253,11 @@ class Optimize(object):
             else: # otherwise, just update the surrogate model on data
                 self.lolbo_state.update_surrogate_model()
             # generate new candidate points, evaluate them, and update data
-            self.lolbo_state.acquisition()
+            if self.save_moments:
+                mu, sigma = self.lolbo_state.acquisition(save_moments=True)
+                self.save_moments_to_csv(mu, sigma)
+            else:
+                self.lolbo_state.acquisition()
             if self.lolbo_state.tr_state.restart_triggered:
                 self.lolbo_state.initialize_tr_state()
             # if a new best has been found, print out new best input and score:
@@ -290,7 +297,11 @@ class Optimize(object):
             else: # otherwise, just update the surrogate model on data
                 self.lolbo_state.update_surrogate_model()
             # generate new candidate points, evaluate them, and update data
-            self.lolbo_state.acquisition()
+            if self.save_moments:
+                mu, sigma = self.lolbo_state.acquisition(save_moments=True)
+                self.save_moments_to_csv(mu, sigma)
+            else:
+                self.lolbo_state.acquisition()
             if self.lolbo_state.tr_state.restart_triggered:
                 self.lolbo_state.initialize_tr_state()
             # if a new best has been found, print out new best input and score:
@@ -441,6 +452,26 @@ class Optimize(object):
 
         return self
 
+    def save_moments_to_csv(self, mean, std):
+        save_dir = os.environ.get("SAVE_DIR", "..")
+        moments_save_path = f"{save_dir}/result_moments/{self.experiment_name}/{self.task_id}/{self.model}_{self.lolbo_state.acq_func}"
+        os.makedirs(moments_save_path, exist_ok=True)
+        dups = self.lolbo_state.duplicates
+        moments = torch.cat((mean, std))
+        moments = moments.cpu().detach().numpy()
+        filepath = f"{moments_save_path}/{self.task_id}_{self.model}_{self.lolbo_state.acq_func}_{self.seed}.csv"
+        mean_cols = [f"mu_{i}" for i in range(mean.shape[0])]
+        std_cols = [f"std_{i}" for i in range(mean.shape[0])]
+        try:
+            df = pd.read_csv(filepath)
+            new_df = pd.DataFrame(moments.T, columns=mean_cols + std_cols)
+            df = df.append(new_df)
+            df.to_csv(filepath, index=False)
+
+        except FileNotFoundError:
+            df = pd.DataFrame(moments.T, columns=mean_cols + std_cols)
+
+        
     def save_to_csv(self, save_best_nbr: int = 1000):
         save_dir = os.environ.get("SAVE_DIR", "..")
         res_save_path = f"{save_dir}/result_values/{self.experiment_name}/{self.task_id}/{self.model}_{self.lolbo_state.acq_func}"
@@ -453,7 +484,7 @@ class Optimize(object):
         os.makedirs(dups_save_path, exist_ok=True)
         Y = self.lolbo_state.orig_train_y.flatten()
         df = pd.DataFrame({self.task_id: Y})
-        df.to_csv(f"{res_save_path}/{self.task_id}_{self.model}_{self.seed}.csv")
+        df.to_csv(f"{res_save_path}/{self.task_id}_{self.model}_{self.lolbo_state.acq_func}_{self.seed}.csv")
         best_indices = torch.argsort(Y, descending=True)[:save_best_nbr]
         best_X = np.array(self.lolbo_state.train_x)[best_indices].tolist()
         best_y = Y[best_indices]
@@ -462,9 +493,9 @@ class Optimize(object):
         df_z = pd.DataFrame(self.lolbo_state.train_z.numpy().astype(np.float16))
         
         df_z["acqtype"] = self.lolbo_state.z_acqtype
-        df_z.to_csv(f"{z_save_path}/{self.task_id}_{self.model}_{self.seed}_z.csv")
-        df_dups.to_csv(f"{dups_save_path}/{self.task_id}_{self.model}_{self.seed}_dups.csv")
-        df_indices.to_csv(f"{str_save_path}/{self.task_id}_{self.model}_{self.seed}_strings.csv")
+        df_z.to_csv(f"{z_save_path}/{self.task_id}_{self.model}_{self.lolbo_state.acq_func}_{self.seed}_z.csv")
+        df_dups.to_csv(f"{dups_save_path}/{self.task_id}_{self.model}_{self.lolbo_state.acq_func}_{self.seed}_dups.csv")
+        df_indices.to_csv(f"{str_save_path}/{self.task_id}_{self.model}_{self.lolbo_state.acq_func}_{self.seed}_strings.csv")
 
 
 

@@ -180,6 +180,7 @@ def generate_batch(
     acqf="ts",  # "ei" or "ts"
     dtype=torch.float32,
     device=torch.device('cuda'),
+    return_mu_std: bool = False
 ):
     assert acqf in ("ts", "ana_ts", "ei", "unmasked_ts")
     assert torch.all(torch.isfinite(Y))
@@ -243,6 +244,11 @@ def generate_batch(
         # Sample on the candidate points 
         thompson_sampling = MaxPosteriorSampling(model=model, replacement=False ) 
         X_next = thompson_sampling(X_cand.cuda(), num_samples=batch_size )
+        preds = model.posterior(X_cand.cuda())
+        pred_mean = preds.mean
+        pred_std = preds.variance.sqrt()
+        if return_mu_std:
+            return X_next, pred_mean, pred_std
 
     elif acqf == "ana_ts":
         bounds = torch.stack([tr_lb, tr_ub]).squeeze(1)
@@ -251,8 +257,4 @@ def generate_batch(
     #    X_next = Z_to_X(X_next)
         
     sobol = SobolEngine(tr_dim, scramble=True) 
-    pert = sobol.draw(1000).to(dtype=dtype).cuda()
-    pred = model.posterior(X_next)
-    
-    print("Best:", Y.max(), "Mean:", pred.mean, "Std:", pred.variance.sqrt())
     return X_next
